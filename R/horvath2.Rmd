@@ -1,0 +1,32 @@
+---
+title: "EWAS in MrOS - Horvath analysis"
+author: "Dan Evans"
+date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+
+```{r, setup}
+knitr::opts_chunk$set(cache.lazy = FALSE)
+```
+# Load libraries
+```{r}
+library(knitr)
+library(tidyverse)
+```
+
+
+# Probe-wise association analysis with inflammation
+```{r, results = "asis"}
+
+resultsTB <- read_csv("../results/probewise_CRPlog.csv")
+
+resultsTB_top <- resultsTB %>%
+	arrange(P) %>%
+	head(100)
+
+kable(resultsTB_top, digits = 8)
+
+
+```
+

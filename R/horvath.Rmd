@@ -1,0 +1,157 @@
+---
+title: "EWAS in MrOS - Horvath analysis"
+author: "Dan Evans"
+date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+
+```{r, setup}
+knitr::opts_chunk$set(cache.lazy = FALSE)
+```
+# Load libraries
+```{r}
+library(xtable)
+library(tidyverse)
+library(multtest)
+```
+
+# Create input files for Horvath website
+
+It turned out that the input files were fine, except for the line endings! I created the files in linux which produces files with line endings like \n, but the Horvath site expected windows style line endings (\r\n). `unix2dos` didn't solve the problem. The only way I could solve this was to open the file in Excel in terminal server, and save as csv file. This Excel trick was suggested on the horvath website. So hacky, but whatever. 
+
+
+```{r, eval = FALSE}
+library(data.table)
+pheno <- fread("../data/pheno/INFLAME.CSV")
+pheno <- pheno[,.(ID, V3AGE1)]
+setnames(pheno, "V3AGE1", "Age")
+#sample annotation in same order as samples in betaMat
+samp <- fread("../data/raw/Evans_Project_002/Evans_Project_002_Sample_Sheet.csv", skip = 8)
+samp[, index := seq_along(Sample_Name)]
+sum(colnames(betaMat)!= samp$Sample_Name)
+sum(colnames(betaMat)== samp$Sample_Name)
+samp <- merge(samp, pheno, by.x = "Sample_Name", by.y = "ID", all.x = TRUE)
+samp[, Tissue := "Blood WB"]
+samp[, Female := 0L]
+samp <- samp[order(index)]
+setnames(samp, "Sample_Name", "ID")
+samp <- samp[,.(ID, Age, Female, Tissue)]
+samp[is.na(Age), Age := as.integer(mean(samp$Age, na.rm = TRUE))]
+fwrite(samp, file = "../data/horvath/input/sampleAnnotation.csv", eol = "\r\n", na= "NA")
+
+horvathProbe <- read.csv("../data/horvath/input/datMiniAnnotation3.csv", header=T, stringsAsFactors = F)#28587 probes
+sum(!horvathProbe$Name %in% rownames(betaMat)) #Darn, 2415 probes not in my data
+
+betasDF <- as.data.frame(betaMat)
+betasDF$ProbeID <- row.names(betaMat)
+betasDF <- betasDF[,c(ncol(betasDF), 1:ncol(betasDF)-1)]
+match1 <- match(horvathProbe[,1], betasDF[,1])
+betasDFreduced <- betasDF[match1,]
+betasDFreduced[is.na(match1), 1] <- as.character(horvathProbe[is.na(match1), 1])
+
+temp <- sapply(betasDFreduced, function(x) is.numeric(x))
+sum(temp)
+temp <- sapply(betasDFreduced, function(x) !is.numeric(x))
+sum(temp)
+
+write.csv(betasDFreduced, "../data/horvath/input/MethylData.csv", row.names = F, quote = F, eol = "\r\n")
+
+```
+
+# Horvath output analysis
+
+```{r}
+
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+horvath <- read_csv("../data/horvath/output/noImputation/MethylData_noImputation.output.csv")
+
+dat <- inner_join(horvath, pheno, by = c("SampleID" = "ID"))
+
+p <- ggplot(data = dat, mapping = aes(x = Age, y= DNAmAge)) +
+	geom_point() + 
+	geom_smooth(method = "lm") +
+	geom_abline()
+
+print(p)
+
+cor.test(dat$Age, dat$DNAmAge)
+```
+
+```{r, results = "asis"}
+lm1 <- lm(log(CYCRPJH) ~ DNAmAge + Age + CD8.naive + CD8pCD28nCD45RAn + PlasmaBlast + CD4T + NK + Mono + Gran, data = dat)
+print(xtable(lm1), type = "html")
+
+lm1 <- lm(CYCRPJH ~ DNAmAge + Age + CD8.naive + CD8pCD28nCD45RAn + PlasmaBlast + CD4T + NK + Mono + Gran, data = dat)
+print(xtable(lm1), type = "html")
+```
+
+
+# Probe-wise association analysis with inflammation
+```{r, results = "asis", eval = FALSE}
+
+phenoMrOS <- read_csv("../data/pheno/INFLAME.CSV")
+horvath <- read_csv("../data/horvath/output/noImputation/MethylData_noImputation.output.csv")
+
+pheno <- inner_join(phenoMrOS, horvath, by = c("ID" = "SampleID"))
+
+#load betas data
+betas <- read_csv("../data/clean/betas.csv")
+samp <- read_csv("../data/raw/Evans_Project_002/Evans_Project_002_Sample_Sheet.csv", skip = 8)
+samp <- samp %>%
+	mutate(sample_ID = paste(Sentrix_ID, Sentrix_Position, sep = "_"))
+#sample IDs in sample sheet in the same order as sample names in betas file
+sum(names(betas)[-1] != samp$sample_ID)
+sum(names(betas)[-1] == samp$sample_ID)
+names(betas) <- c("probeID", samp$Sample_Name)
+#create matrix of betas for apply
+betaMat <- betas %>%
+	select(-probeID) %>%
+	as.matrix
+
+betaMat <- betaMat[,colnames(betaMat)  %in% pheno$ID]
+#remove trailing info from probe IDs
+probes <- base::strsplit(betas$probeID, split = "_", fixed = TRUE)
+probes <- vapply(probes, function(x) x[1], FUN.VALUE = character(1))
+dimnames(betaMat)[[1]] <- probes
+
+lm_fun <- function(cg){
+  out <- tryCatch({
+    lm1 <- lm(log(CYCRPJH) ~ cg + Age + CD8.naive + CD8pCD28nCD45RAn + PlasmaBlast + CD4T + NK + Mono + Gran, data = pheno)
+    n1 <- length(resid(lm1))
+    b <- summary(lm1)$coefficients[2,1]
+    se <- summary(lm1)$coefficients[2,2]
+    p <- summary(lm1)$coefficients[2,4]
+    return(c(n1, b, se, p))
+  },
+  error = function(e) rep(NA, 4)
+  )
+}
+
+results <- apply(betaMat, 1, lm_fun)
+results <- t(results)
+colnames(results) <- c("N", "Beta", "SE", "P")
+resultsTB <- as_tibble(results)
+resultsTB <- resultsTB %>%
+	mutate(probeID = rownames(results)) %>%
+	select(probeID, everything())
+adjp1 <- mt.rawp2adjp(resultsTB[["P"]], proc = "BH")
+resultsTB <- resultsTB %>%
+	mutate(P_BH = adjp1$adjp[order(adjp1$index),"BH"])
+
+write_csv(resultsTB, "../results/probewise_CRPlog.csv")
+resultsDF_top <- resultsTB %>%
+	arrange(P) %>%
+	head(50) %>%
+	as.data.frame
+
+print(xtable(resultsDF_top), type = "html")
+
+
+resultsTB_top <- resultsTB %>%
+	arrange(P) %>%
+	head(50)
+
+print(xtable(resultsTB_top), type = "html")
+```
+

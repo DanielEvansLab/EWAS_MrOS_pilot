@@ -1,0 +1,220 @@
+---
+title: "EWAS pilot in MrOS using minfi R package"
+author: "Dan Evans"
+date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+# EWAS terms
+
+More drugs to examine. Anti-NGF and might be associated with OA. Anti-sclerostin and heart disease. 
+
+DNA methylation quantity is expressed as $\beta$ 
+
+$$ \beta = M/(M + U)  $$
+
+Where M = hybridization signal from a methylated version of a cytosine nucleotide and 
+U =  hybridization signal from an unmethylated version of a cytosine nucleotide. 
+
+A detection probability represents the probability of a detected signal being background flourescence. If the probability is high, the signal is more likely to be background, and the value should be set to missing.
+
+Standard workflows suggest to remove data points with detection P-value > 0.05.  
+
+# Processing Illumina EPIC array with Sesame package
+
+- EWAS array Illumina EPIC 850 + custom content
+
+- LifeEGX worked with Sesame developer to process chips. LifeEGX recommends Sesame
+
+- Sesame is a [bioconductor package](https://www.bioconductor.org/packages/release/bioc/html/sesame.html)
+  + Improvements on previous EWAS packages for low-level processing. 
+  + Existing methods do not identify artifacts associated with detection failure. Sources of failure include: insufficient DNA due to germline or somatic deletions or hyperpolymorphism, probe cross-hybridization. 
+  + P-value with out-of-band array hybridization: pOOBAH
+  + Reduces technical artifacts
+
+- Lots of sesame issues. First, estimateCellComposition function was not found. Strangely, I could access the help file for the function in R. Something wrong with loading the function. So, I tried updating sesame, but tons of errors updating the associated sesameData package. I finally got them both installed, after just trying a bunch of times, but estimateCellComposition function still not found. 
+
+- I will try minfi. 
+
+```{r, setup}
+knitr::opts_chunk$set(cache.lazy = FALSE)
+```
+
+# Minfi installation on UCR cluster
+
+
+```{r, eval = FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("minfi", lib = "~/Rlibs")
+```
+
+# Load libraries
+```{r}
+library(minfi)
+```
+
+# Filter and normalize data
+
+This process takes a long time, so run it once and save the output.
+
+```{r, eval = FALSE}
+
+manifest <- read.csv("../data/raw/Evans_Project_002/CombinedManifestEPICplus.manifest.LifeEGX.csv", header = T, stringsAsFactors = F, na.strings = c("NA", ""))
+
+#manifest <- readRDS("../data/raw/Evans_Project_002/OpenDMAP_sesame_manifest.rds")
+
+
+
+baseDir <- c("../data/raw/Evans_Project_002/idat_Files/")
+list.files(baseDir)
+list.files(file.path(baseDir, "203259070019"))
+
+targets <- read.metharray.sheet(base = "../data/raw/Evans_Project_002/", pattern = "*Sample_Sheet.csv")
+
+RGset <- read.metharray.exp(targets = targets)
+pd <- pData(RGset)
+
+dat <- preprocessNoob(RGset)
+
+```
+
+# Load matrix of betas
+
+Add MrOS subject IDs.
+
+Fix probe IDs to allow matching with various downstream utilities.
+
+```{r, cache = TRUE}
+betas <- fread("../data/clean/betas.csv")
+samp <- fread("../data/raw/Evans_Project_002/Evans_Project_002_Sample_Sheet.csv", skip = 8)
+samp[, sample_ID := paste(Sentrix_ID, Sentrix_Position, sep = "_")]
+#sample IDs in sample sheet in the same order as sample names in betas file
+sum(names(betas)[-1] != samp$sample_ID)
+sum(names(betas)[-1] == samp$sample_ID)
+setnames(betas, c("probeID", samp$Sample_Name))
+betaMat <- as.matrix(betas[,!"probeID"])
+
+#remove trailing info from probe IDs
+probes <- base::strsplit(betas$probeID, split = "_", fixed = TRUE)
+probes <- vapply(probes, function(x) x[1], FUN.VALUE = character(1))
+dimnames(betaMat)[[1]] <- probes
+betaMat <- t(betaMat)
+
+```
+
+# Use beta matrix to predict cell composition
+
+```{r}
+g <- getRefSet(platform = "EPIC")
+probeCell <- row.names(g)
+q <- betaMat[,1]
+probes2 <- base::intersect(names(q), probeCell)
+q <- q[names(q) %in% probes2]
+g <- g[probeCell %in% probes2,]
+
+cells <- estimateCellComposition(g, q, refine = FALSE)
+
+
+?estimateCellComposition
+
+```
+
+# Probe hg19 annotation
+
+```{r}
+EPIC.hg19.manifest <- sesameDataGet("EPIC.hg19.manifest")
+str(EPIC.hg19.manifest)
+
+```
+
+# Use beta matrix to predict biological age
+
+```{r}
+
+(ageH353 <- apply(betaMat, 1, predictAgeHorvath353))
+
+```
+
+# Missing analysis 
+
+By sample and probe
+```{r}
+miss_sample <- apply(betaMat, 1, function(x) sum(is.na(x))/length(x) )
+miss_probe <- apply(betaMat, 2, function(x) sum(is.na(x))/length(x) )
+length(miss_sample)
+length(miss_probe)
+sum(is.na(miss_sample))
+sum(is.na(miss_probe))
+sum(miss_sample >= 0.95) #0 samples have missing rate greater than 
+sum(miss_sample >= 0.05) #14 samples with missing rate greater than 5%
+sum(miss_probe >= 1) #3229 completely missing probes. Remove these, then determine number of samples with missing rate>0.05.
+blank_probes <- names(miss_probe[miss_probe >= 1])
+betaMat <- betaMat[,!colnames(betaMat) %in% blank_probes]
+sum(miss_probe >= 0.95) #6608 probes with missing rate greater than 95%
+sum(miss_probe >= 0.05) #89822 probes with missing rate greater than 5%
+sum(miss_probe >= 0.05) / length(miss_probe) #10.4% probes have greater than 5% missing  
+
+miss_probe[miss_probe >= 0.95]
+```
+
+# Read IDATs into SigSet list
+```{r, cache = TRUE, results = "asis"}
+
+IDATprefixes <- searchIDATprefixes(dir.name = "../data/raw/Evans_Project_002/idat_Files")
+#IDATprefixes <- IDATprefixes[2:3]
+ssets <- lapply(IDATprefixes, readIDATpair)
+chipSex <- sapply(ssets, inferSex)
+chipEth <- sapply(ssets, inferEthnicity)
+
+qc10 <- do.call(rbind, lapply(ssets, function(x)
+    as.data.frame(sesameQC(x))))
+qc10$sample_name <- names(ssets)
+
+qctab <- qc10[,c('mean_beta_cg','frac_meth_cg','frac_unmeth_cg','sex','age')]
+tab <- xtable(qctab)
+print(tab, type = "html")
+```
+
+
+# Mean intensity
+
+The mean {M,U} intensity can be reached by mean_intensity. Similarly, the mean M+U intensity can be reached by mean_intensity_total. Low intensities are symptomatic of low input or poor hybridization.
+
+```{r, results = "asis"}
+
+library(wheatmap)
+p1 <- ggplot(qc10) +
+    geom_bar(aes(sample_name, mean_intensity), stat='identity') +
+    xlab('Sample Name') + ylab('Mean Intensity') +
+    ylim(0,18000) +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+p2 <- ggplot(qc10) +
+    geom_bar(aes(sample_name, mean_intensity_total), stat='identity') +
+    xlab('Sample Name') + ylab('Mean M+U Intensity') +
+    ylim(0,18000) +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+WGG(p1) + WGG(p2, RightOf())
+
+```
+
+# Fraction of NA
+
+The fraction of NAs are signs of masking due to variety of reasons including failed detection, high background, putative low quality probes etc. 
+
+```{r, results = "asis"}
+p1 <- ggplot(qc10) +
+    geom_bar(aes(sample_name, num_na_cg), stat='identity') +
+    xlab('Sample Name') + ylab('Number of NAs') +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+p2 <- ggplot(qc10) +
+    geom_bar(aes(sample_name, frac_na_cg), stat='identity') +
+    xlab('Sample Name') + ylab('Fraction of NAs (%)') +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+WGG(p1) + WGG(p2, RightOf())
+
+
+```
+
+
