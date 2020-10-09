@@ -18,7 +18,7 @@ vignette: >
 
 # Introduction
 
-More drugs to examine. Anti-NGF and might be associated with OA. Anti-sclerostin and heart disease. 
+EPIC array has type 1 and type 2 probes. Type 1 probes are from the old 27K array that uses 2 bead types per CpG. The type I probes are labeled I-green and I-red. The newer type 2 probes uses one bead type. Most of the EPIC array probes are type 2. 
 
 DNA methylation quantity is expressed as $\beta$ 
 
@@ -26,6 +26,10 @@ $$ \beta = M/(M + U)  $$
 
 Where M = hybridization signal from a methylated version of a cytosine nucleotide and 
 U =  hybridization signal from an unmethylated version of a cytosine nucleotide. 
+
+Beta can be interpreted as the proportion of methylation signal for a probe, and values range from 0 to 1. Beta is easy to interpret for humans, but typically has a bimodal distribution that is suboptimal for statistical modeling. Thus, we analyze M-values, which are another way to express methylation values for probes. 
+
+$$ M-value = log_2(M/U) $$
 
 A detection probability represents the probability of a detected signal being background flourescence. If the probability is high, the signal is more likely to be background, and the value should be set to missing.
 
@@ -72,11 +76,14 @@ library(wheatmap)
 library(multtest)
 library(limma)
 library(RColorBrewer)
+library(EnhancedVolcano)
 ```
 
 ## Import and normalize data
 
 Reading the data with openSesame takes about 55 minutes. 
+
+Create ExpressionSet object saved to disk for easy subsequent loading.
 
 ```{r cache = TRUE, message = FALSE, warning = FALSE}
 
@@ -195,10 +202,217 @@ write_rds(eset_Mvals, path = "../data/formatted/eset_Mvals.rds")
 
 ```
 
-## Additional QC
+## Sesame standard QC
 
 
-## Create files for Horvath website
+```{r cache = TRUE, message = FALSE, warning = FALSE, results = "asis"}
+pdat <- pData(eset_Mvals)
+IDATprefixes <- searchIDATprefixes(dir.name = "../data/raw/Evans_Project_002/idat_Files")
+ssets <- lapply(IDATprefixes, readIDATpair)
+qc10 <- do.call(rbind, lapply(ssets, function(x) as.data.frame(sesameQC(x))))
+qc10 <- qc10 %>%
+	mutate(sample_name = pdat$Sample_Name) %>%
+	select(sample_name, everything())
+qcvars <- c("sample_name", "num_probes_cg", "num_na_cg", "frac_na_cg", "mean_intensity", "mean_beta_cg", "frac_meth_cg", "frac_unmeth_cg", "sex", "age", "ethnicity", "GCT")
+qc10 %>%
+	select(any_of(qcvars)) %>%
+	kable
+```
+
+## Mean intensity
+
+The mean {M,U} intensity can be reached by mean_intensity. Similarly, the mean M+U intensity can be reached by mean_intensity_total. Low intensities are symptomatic of low input or poor hybridization.
+
+```{r cache = TRUE, results = "asis"}
+
+p1 <- ggplot(qc10) +
+    geom_bar(aes(sample_name, mean_intensity), stat='identity') +
+    xlab('Sample Name') + ylab('Mean Intensity') +
+    ylim(0,18000) +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+p2 <- ggplot(qc10) +
+    geom_bar(aes(sample_name, mean_intensity_total), stat='identity') +
+    xlab('Sample Name') + ylab('Mean M+U Intensity') +
+    ylim(0,18000) +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+WGG(p1) + WGG(p2, RightOf())
+
+```
+
+## Missing analysis 
+
+The fraction of NAs is a sign of masking due to a variety of reasons, including failed detection, high background, putative low quality probes, etc.
+
+Now we move back to the normalized Mvals to identify and remove failed samples and probes. I'll also remove probes that are recommended to be masked from the annotation file. 
+First, remove masked probes. Then, remove failed samples and failed probes. How many samples are missing across all probes? How many probes are missing across all samples? 
+
+```{r cache = TRUE, results = "asis"}
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals.rds")
+dim(eset_Mvals)
+#Remove 210 probes without annotation
+f_dat <- fData(eset_Mvals)
+sum(is.na(f_dat$MASK_general))
+eset_Mvals <- eset_Mvals[!is.na(f_dat$MASK_general),]
+#Remove flagged probes. Keep non-flagged, which are FALSE.
+f_dat <- fData(eset_Mvals)
+table(f_dat$MASK_general)
+eset_Mvals <- eset_Mvals[!f_dat$MASK_general,]
+dim(eset_Mvals)
+
+e <- exprs(eset_Mvals)
+pdat <- pData(eset_Mvals)
+
+miss_sample <- apply(e, 2, function(x) sum(is.na(x))/length(x) )
+miss_probe <- apply(e, 1, function(x) sum(is.na(x))/length(x) )
+length(miss_sample)
+length(miss_probe)
+sum(is.na(miss_sample))
+sum(is.na(miss_probe))
+sum(miss_sample >= 0.95) #0 samples have missing rate greater than 95% 
+#no samples that are essentially blanks.
+sum(miss_probe >= 1) #Completely missing probes. 
+sum(miss_probe >= 0.95) #Remove these probes, then determine number of samples with missing rate>0.05.
+
+#Remove failed probes
+# Keep probes with < 0.95 missingness
+eset_Mvals <- eset_Mvals[miss_probe < 0.95 ,]
+dim(eset_Mvals)
+
+#Reestimate probe and sample missing rates after removing failed probes
+e <- exprs(eset_Mvals)
+pdat <- pData(eset_Mvals)
+miss_sample <- apply(e, 2, function(x) sum(is.na(x))/length(x) )
+miss_probe <- apply(e, 1, function(x) sum(is.na(x))/length(x) )
+sum(miss_probe > 0.05) #62532 probes with missing rate greater than 5%
+sum(miss_probe > 0.05)/length(miss_probe) #8% probes removed 
+sum(miss_sample > 0.10) # 7 samples with > 10% missing 
+sort(miss_sample[miss_sample > 0.1], decreasing = TRUE)
+sum(miss_sample > 0.10)/length(miss_sample) #4% samples removed
+
+#Sample missing rate
+data.frame(sampleID = names(miss_sample), missing_percent = miss_sample, stringsAsFactors = F) %>%
+	arrange(desc(missing_percent)) %>%
+	slice_head(prop = 0.25) %>%
+	kable
+
+#After removing failed probes, display probe missing rate
+#Number of probes with no missings
+sum(miss_probe == 0)
+#Number of probes with at least one missing
+sum(miss_probe > 0)
+#Number of probes with > 5% missing
+sum(miss_probe > 0.05)
+#Number of probes with > 10% missing
+sum(miss_probe > 0.1)
+miss_probe_f <- cut(miss_probe, breaks = seq(0, 1, 0.1))
+table(miss_probe_f)
+data.frame(missing_interval = miss_probe_f) %>%
+	filter(!is.na(missing_interval)) %>%
+	ggplot(aes(missing_interval)) + 
+	geom_bar() +
+	labs(title = "Probe missing rate distribution")
+
+
+#keep samples with missing < 10% and probes with missing < 5%
+eset_Mvals <- eset_Mvals[miss_probe < 0.05 , miss_sample < 0.1]
+dim(eset_Mvals)
+
+```
+
+## Distributions
+
+Probes have been cleaned based on MASK status and missingness. 
+
+Samples have been cleaned based on missingness. 
+
+Check status of normalization with boxplots and kernel density plots.
+
+### Boxplots
+
+```{r cache = TRUE}
+
+boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
+
+```
+
+### Density plots
+
+```{r cache = TRUE}
+
+plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
+
+```
+
+## PCA
+
+```{r cache = TRUE}
+plotMDS(eset_Mvals, gene.selection = "common", pch = 16, main = "Point labels")
+plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
+
+```
+
+# Association analysis
+
+Merge inflammation variables to pdat. Use limma for association.
+
+```{r cache = TRUE, results = "asis"}
+p_dat <- pData(eset_Mvals)
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+pheno <- pheno %>%
+	select(ID, SITE, V3AGE1, CYCRPJH) %>%
+	mutate(CRPlog = log(CYCRPJH)) %>%
+	mutate(SITE = as.factor(SITE))
+
+p_dat <- p_dat %>%
+	left_join(pheno, c("Sample_Name" = "ID")) %>%
+	arrange(sampOrder)
+map_int(p_dat, function(x) sum(is.na(x)))
+
+#Must remove missings from eset and pData
+mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$CRPlog)
+eset_Mvals <- eset_Mvals[, mykeep]
+p_dat <- p_dat[mykeep, ]
+dim(eset_Mvals)
+dim(p_dat)
+
+p_dat %>%
+	ggplot(aes(CYCRPJH)) +
+	geom_density()
+
+p_dat %>%
+	ggplot(aes(CRPlog)) +
+	geom_density()
+
+p_dat %>%
+	ggplot(aes(V3AGE1)) +
+	geom_density()
+
+p_dat %>%
+	ggplot(aes(SITE)) +
+	geom_bar()
+
+design <- model.matrix(~ CRPlog + V3AGE1 + SITE, data = p_dat)
+fit <- lmFit(eset_Mvals, design)
+fit <- eBayes(fit)
+results <- decideTests(fit[,"CRPlog"])
+summary(results)
+
+annot_cols <- c("probeID", "CpG_chrm", "CpG_beg", "gene")
+topTable(fit, coef = "CRPlog", confint = TRUE, genelist = fit$genes[,annot_cols]) %>%
+	kable
+
+resultAll <- topTable(fit, coef = "CRPlog", confint = TRUE, sort.by = "none", number = Inf)
+
+EnhancedVolcano(resultAll,
+		lab = resultAll$probeID,
+		x = "logFC",
+		y = "P.Value")
+
+write_csv(resultAll, path = "../results/limma_CRPlog.csv")
+
+```
+
+# Create files for Horvath website
 ```{r, eval = FALSE}
 library(data.table)
 pheno <- fread("../data/pheno/INFLAME.CSV")
@@ -238,90 +452,6 @@ write.csv(betasDFreduced, "../data/horvath/input/MethylData.csv", row.names = F,
 ```
 
 
-## Missing analysis 
-
-By sample and probe
-```{r, eval = FALSE}
-miss_sample <- apply(betaMat, 2, function(x) sum(is.na(x))/length(x) )
-miss_probe <- apply(betaMat, 1, function(x) sum(is.na(x))/length(x) )
-length(miss_sample)
-length(miss_probe)
-sum(is.na(miss_sample))
-sum(is.na(miss_probe))
-sum(miss_sample >= 0.95) #0 samples have missing rate greater than 
-#no samples that are essentially blanks.
-sum(miss_probe >= 1) #3229 completely missing probes. 
-sum(miss_probe >= 0.95) #6608 Remove these, then determine number of samples with missing rate>0.05.
-blank_probes <- names(miss_probe[miss_probe >= 0.95])
-#remove probes with >=0.95 missingness
-betaMat <- betaMat[!rownames(betaMat) %in% blank_probes, ]
-
-# Now I can remove probes with missing rate > 5% and samples > 10%
-miss_sample <- apply(betaMat, 2, function(x) sum(is.na(x))/length(x) )
-miss_probe <- apply(betaMat, 1, function(x) sum(is.na(x))/length(x) )
-sum(miss_probe > 0.05) #73843 probes with missing rate greater than 5%
-sum(miss_probe > 0.05)/length(miss_probe) #8% probes removed 
-sum(miss_sample > 0.10) # 7 samples with > 10% missing 
-miss_sample[miss_sample > 0.1]
-sum(miss_sample > 0.10)/length(miss_sample) #4% samples removed
-
-#remove samples with missing >10% and probes with missing > 5%
-blank_probes <- names(miss_probe[miss_probe > 0.05])
-betaMat <- betaMat[!rownames(betaMat) %in% blank_probes, ]
-blank_samples <- names(miss_sample[miss_sample > 0.10])
-betaMat <- betaMat[, !colnames(betaMat) %in% blank_samples ]
-dim(betaMat) #788242 probes, 153 samples
-
-betasDT <- as.data.table(betaMat)
-betasDT[,ProbeID := row.names(betaMat)]
-setcolorder(betasDT,c("ProbeID", names(betasDT)[1:ncol(betasDT)-1]))
-fwrite(betasDT, file = "../data/clean/betas_miss.csv", na = "NA")
-betaMatT <- t(betaMat)
-betasDT <- as.data.table(betaMatT)
-betasDT[,ID := row.names(betaMatT)]
-setcolorder(betasDT,c(ncol(betasDT), 1:(ncol(betasDT)-1)))
-fwrite(betasDT, file = "../data/clean/betas_miss_tr.csv", na = "NA")
-```
-
-## Read IDATs into SigSet list
-```{r, eval = FALSE, cache = TRUE, results = "asis"}
-
-IDATprefixes <- searchIDATprefixes(dir.name = "../data/raw/Evans_Project_002/idat_Files")
-#IDATprefixes <- IDATprefixes[2:3]
-ssets <- lapply(IDATprefixes, readIDATpair)
-chipSex <- sapply(ssets, inferSex)
-chipEth <- sapply(ssets, inferEthnicity)
-
-qc10 <- do.call(rbind, lapply(ssets, function(x)
-    as.data.frame(sesameQC(x))))
-qc10$sample_name <- names(ssets)
-
-qctab <- qc10[,c('mean_beta_cg','frac_meth_cg','frac_unmeth_cg','sex','age')]
-tab <- xtable(qctab)
-print(tab, type = "html")
-```
-
-
-## Mean intensity
-
-The mean {M,U} intensity can be reached by mean_intensity. Similarly, the mean M+U intensity can be reached by mean_intensity_total. Low intensities are symptomatic of low input or poor hybridization.
-
-```{r, eval = FALSE, results = "asis"}
-
-library(wheatmap)
-p1 <- ggplot(qc10) +
-    geom_bar(aes(sample_name, mean_intensity), stat='identity') +
-    xlab('Sample Name') + ylab('Mean Intensity') +
-    ylim(0,18000) +
-    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
-p2 <- ggplot(qc10) +
-    geom_bar(aes(sample_name, mean_intensity_total), stat='identity') +
-    xlab('Sample Name') + ylab('Mean M+U Intensity') +
-    ylim(0,18000) +
-    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
-WGG(p1) + WGG(p2, RightOf())
-
-```
 
 
 # R session
