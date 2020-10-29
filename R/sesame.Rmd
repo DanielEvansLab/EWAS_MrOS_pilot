@@ -77,6 +77,7 @@ library(multtest)
 library(limma)
 library(RColorBrewer)
 library(EnhancedVolcano)
+library(kableExtra)
 ```
 
 ## Import and normalize data
@@ -413,8 +414,54 @@ write_csv(resultAll, path = "../results/limma_CRPlog.csv")
 ```
 
 # Create files for Horvath website
-```{r, eval = FALSE}
-library(data.table)
+
+Readin files without normalization or probe masking. Horvath site wants to use their own normalization, and asks that input files have no missings in betas. 
+
+```{r cache = TRUE, message = FALSE, warning = FALSE}
+
+manifest <- readRDS("../data/raw/Evans_Project_002/OpenDMAP_sesame_manifest.rds")
+
+IDATprefixes <- searchIDATprefixes(dir.name = "../data/raw/Evans_Project_002/idat_Files")
+
+betaHor <- do.call(cbind, lapply(IDATprefixes, 
+			       function(pfx){
+			         pfx %>%
+				       readIDATpair(manifest = manifest) %>%
+				       getBetas(quality.mask = FALSE, 
+						nondetection.mask = FALSE
+						)
+			       } 
+			       )
+)
+
+base::apply(betaHor, 2, function(x) sum(is.na(x))) %>%
+	base::sort(decreasing = TRUE) %>%
+	head
+
+dat_pData <- read_csv("../data/raw/Evans_Project_002/Evans_Project_002_Sample_Sheet.csv", skip = 8)
+dat_pData <- dat_pData %>%
+	mutate(Basename = paste(Sentrix_ID, Sentrix_Position, sep = "_"))
+
+#sample IDs in sample sheet are in the same order as sample names in betas file
+sum(colnames(betaHor) != dat_pData$Basename)
+sum(colnames(betaHor) == dat_pData$Basename)
+cbind(colnames(betaHor), dat_pData$Basename)
+
+colnames(betaHor) <- dat_pData$Sample_Name
+
+betaHor_probes <- str_split(string = rownames(betaHor), pattern = "_")
+betaHor_probes <- map_chr(betaHor_probes, function(x) x[1])
+length(betaHor_probes)
+dim(betaHor)
+#868,701 probes from Mvals data
+sum(duplicated(betaHor_probes))
+#There are 210 duplicate probes when deleting everything after "_"! For those dups, I'll simply include the original probe ID.
+rownames(betaHor)[duplicated(betaHor_probes)]
+betaHor_probes[duplicated(betaHor_probes)] <- rownames(betaHor)[duplicated(betaHor_probes)]
+
+Mvals_annot <- data.frame(probeID = Mvals_probes, onChip = 1L, stringsAsFactors = FALSE)
+
+
 pheno <- fread("../data/pheno/INFLAME.CSV")
 pheno <- pheno[,.(ID, V3AGE1)]
 setnames(pheno, "V3AGE1", "Age")
