@@ -421,6 +421,7 @@ probeCV <- apply(e, 1, cvFun, dupIDs = dupIDs, pdat = pdat)
 head(sort(probeCV, decreasing = TRUE))
 
 data.frame(intraAssayCV = probeCV) %>%
+	filter(intraAssayCV <= 500) %>%
 	ggplot(aes(intraAssayCV)) + 
 	geom_density(fill = "blue")
 
