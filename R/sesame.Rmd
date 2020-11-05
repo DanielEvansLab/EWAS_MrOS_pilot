@@ -357,6 +357,9 @@ plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
 Merge inflammation variables to pdat. Use limma for association.
 
 ```{r cache = TRUE, results = "asis"}
+core_vars <- c("ID", "SITE", "V3AGE1")
+outcome_var <- c("CYCRPJH")
+
 p_dat <- pData(eset_Mvals)
 pheno <- read_csv("../data/pheno/INFLAME.CSV")
 pheno <- pheno %>%
@@ -417,7 +420,7 @@ write_csv(resultAll, path = "../results/limma_CRPlog.csv")
 
 Readin files without normalization or probe masking. Horvath site wants to use their own normalization, and asks that input files have no missings in betas. 
 
-```{r cache = TRUE, message = FALSE, warning = FALSE}
+```{r eval = FALSE, cache = TRUE, message = FALSE, warning = FALSE}
 
 manifest <- readRDS("../data/raw/Evans_Project_002/OpenDMAP_sesame_manifest.rds")
 
