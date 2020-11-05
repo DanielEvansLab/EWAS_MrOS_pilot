@@ -344,6 +344,34 @@ plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
 ```
 
+### Remove 3 sample outliers with low M-vals
+
+Three samples showed low median M-values. Remove them, then re-examine boxplots and density plots.
+
+```{r cache = TRUE}
+MvalMed <- apply(exprs(eset_Mvals), 2, function(x) median(x, na.rm = T))
+sort(MvalMed)[1:5]
+lowMedSamp <- names(sort(MvalMed)[1:3])
+
+pdat <- pData(eset_Mvals)
+keep <- !pdat$Sample_Name %in% lowMedSamp
+
+eset_Mvals <- eset_Mvals[, keep]
+```
+
+```{r cache = TRUE}
+
+boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
+
+```
+
+```{r cache = TRUE}
+
+plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
+
+```
+
+
 ## PCA
 
 ```{r cache = TRUE}
@@ -351,6 +379,65 @@ plotMDS(eset_Mvals, gene.selection = "common", pch = 16, main = "Point labels")
 plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
 
 ```
+
+# Intra-assay CV of probes using duplicated samples
+
+
+```{r cache = TRUE}
+
+pdat <- pData(eset_Mvals)
+dupIDs <- pdat %>%
+	filter(!is.na(dupMrOSID)) %>%
+	pull(dupMrOSID)
+
+e <- exprs(eset_Mvals)
+cbind(pdat$Sample_Name[match(dupIDs, pdat$Sample_Name)],
+      pdat$dupMrOSID[match(dupIDs, pdat$dupMrOSID)]
+      )
+
+cbind(pdat$Sample_Name[match(dupIDs, pdat$Sample_Name)],
+      pdat$Sample_Name[match(dupIDs, pdat$dupMrOSID)]
+      )
+
+pdat %>%
+	filter(!is.na(dupMrOSID)) %>%
+	select(dupMrOSID, Sample_Name)
+
+cvFun <- function(e1, dupIDs, pdat){
+  dup1 <- e1[match(dupIDs, pdat$Sample_Name)]
+  dup2 <- e1[match(dupIDs, pdat$dupMrOSID)]
+  matDup <- cbind(dup1, dup2)
+  matDup <- matDup[complete.cases(matDup),]
+  if(length(matDup) > 0){
+              meanDup <- rowMeans(matDup)
+              sdDup <- apply(matDup, 1, sd)
+              cvDup <- 100*(sdDup/meanDup)
+              return(abs(mean(cvDup)))
+      } else {
+	      return(NA)
+      }
+}
+probeCV <- apply(e, 1, cvFun, dupIDs = dupIDs, pdat = pdat)
+head(sort(probeCV, decreasing = TRUE))
+
+data.frame(intraAssayCV = probeCV) %>%
+	ggplot(aes(intraAssayCV)) + 
+	geom_density(fill = "blue")
+
+```
+The intra-assay CV is `r mean(probeCV, na.rm = TRUE)`
+
+There are `r sum(probeCV > 500 & !is.na(probeCV))` probes with intra-assay CV > 500.
+
+There are `r sum(probeCV > 100 & !is.na(probeCV))` probes with intra-assay CV > 100.
+
+There are `r sum(probeCV > 50 & !is.na(probeCV))` probes with intra-assay CV > 50.
+
+There are `r sum(probeCV > 15 & !is.na(probeCV))` probes with intra-assay CV > 15.
+
+# Output cleaned eset object
+
+All sample and probe QC completed.
 
 # Association analysis
 
@@ -380,15 +467,15 @@ dim(eset_Mvals)
 dim(p_dat)
 
 p_dat %>%
-	ggplot(aes(CYCRPJH)) +
+	ggplot(aes(CYCRPJH, fill = "blue")) +
 	geom_density()
 
 p_dat %>%
-	ggplot(aes(CRPlog)) +
+	ggplot(aes(CRPlog, fill = "blue")) +
 	geom_density()
 
 p_dat %>%
-	ggplot(aes(V3AGE1)) +
+	ggplot(aes(V3AGE1, fill = "blue")) +
 	geom_density()
 
 p_dat %>%
