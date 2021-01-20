@@ -456,6 +456,69 @@ write_rds(eset_Mvals, file = "../data/formatted/eset_Mvals_clean.rds")
 
 ```
 
+# Blood cell type analysis
+
+Does CBC or Horvath predicted cell types associate with PCs?
+
+Also, do Horvath predictions associate with CBC?
+
+```{r}
+
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
+f_dat <- fData(eset_Mvals)
+p_dat <- pData(eset_Mvals)
+e <- exprs(eset_Mvals)
+miss_probe <- apply(e, 1, function(x) sum(is.na(x)))
+sum(miss_probe > 0)
+sum(f_dat$CVprobe >= 100)
+sum(f_dat$CVprobe >= 100 & miss_probe == 0)
+sum(miss_probe == 0 & f_dat$CVprobe < 100)
+eset_sub <- eset_Mvals[miss_probe == 0 & f_dat$CVprobe < 100, ] 
+eset_pca <- prcomp(t(exprs(eset_sub)), center = TRUE, scale = TRUE)
+summary(eset_pca)$importance[,1:10]
+eset_PC <- eset_pca[["x"]]
+eset_PC <- as.data.frame(eset_PC)
+eset_PC$ID <- row.names(eset_PC)
+eset_PC <- eset_PC %>%
+	select(ID, PC1, PC2)
+
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+
+eset_PC <- eset_PC %>%
+	inner_join(pheno, by = "ID")
+
+summary(eset_PC$LABASO) #basophils 
+table(cut(eset_PC$LABASO, breaks = 4))
+summary(eset_PC$LAEOSI) #eosinophils 
+table(cut(eset_PC$LAEOSI, breaks = 4))
+summary(eset_PC$LALYMP) #lymphocytes 
+table(cut(eset_PC$LALYMP, breaks = 4))
+summary(eset_PC$LAMONO) #monocytes 
+table(cut(eset_PC$LAMONO, breaks = 4))
+summary(eset_PC$LANEUT) #neutrophils 
+table(cut(eset_PC$LANEUT, breaks = 4))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LABASO, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LAEOSI, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LALYMP, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LAMONO, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LANEUT, breaks = 4)))
+```
+
 # Association analysis
 
 Merge inflammation variables to pdat. Use limma for association.
