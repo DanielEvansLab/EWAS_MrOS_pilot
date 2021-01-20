@@ -1,6 +1,7 @@
 ---
 title: "EWAS pilot in MrOS"
 author: "Dan Evans"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
   BiocStyle::html_document:
     toc_float: true
@@ -86,7 +87,7 @@ Reading the data with openSesame takes about 55 minutes.
 
 Create ExpressionSet object saved to disk for easy subsequent loading.
 
-```{r cache = TRUE, message = FALSE, warning = FALSE}
+```{r message = FALSE, warning = FALSE, cache = TRUE}
 
 # manifest <- read.csv("../data/raw/Evans_Project_002/CombinedManifestEPICplus.manifest.LifeEGX.csv", header = T, stringsAsFactors = F, na.strings = c("NA", ""))
 
@@ -206,7 +207,7 @@ write_rds(eset_Mvals, path = "../data/formatted/eset_Mvals.rds")
 ## Sesame standard QC
 
 
-```{r cache = TRUE, message = FALSE, warning = FALSE, results = "asis"}
+```{r message = FALSE, warning = FALSE, cache = TRUE, results = "asis"}
 pdat <- pData(eset_Mvals)
 IDATprefixes <- searchIDATprefixes(dir.name = "../data/raw/Evans_Project_002/idat_Files")
 ssets <- lapply(IDATprefixes, readIDATpair)
@@ -224,7 +225,7 @@ qc10 %>%
 
 The mean {M,U} intensity can be reached by mean_intensity. Similarly, the mean M+U intensity can be reached by mean_intensity_total. Low intensities are symptomatic of low input or poor hybridization.
 
-```{r cache = TRUE, results = "asis"}
+```{r results = "asis"}
 
 p1 <- ggplot(qc10) +
     geom_bar(aes(sample_name, mean_intensity), stat='identity') +
@@ -247,7 +248,7 @@ The fraction of NAs is a sign of masking due to a variety of reasons, including 
 Now we move back to the normalized Mvals to identify and remove failed samples and probes. I'll also remove probes that are recommended to be masked from the annotation file. 
 First, remove masked probes. Then, remove failed samples and failed probes. How many samples are missing across all probes? How many probes are missing across all samples? 
 
-```{r cache = TRUE, results = "asis"}
+```{r results = "asis"}
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals.rds")
 dim(eset_Mvals)
 #Remove 210 probes without annotation
@@ -271,8 +272,9 @@ sum(is.na(miss_sample))
 sum(is.na(miss_probe))
 sum(miss_sample >= 0.95) #0 samples have missing rate greater than 95% 
 #no samples that are essentially blanks.
-sum(miss_probe >= 1) #Completely missing probes. 
-sum(miss_probe >= 0.95) #Remove these probes, then determine number of samples with missing rate>0.05.
+sum(miss_probe >= 1) #Completely missing probes.
+#Remove these probes, then determine number of samples with missing rate>0.05.
+sum(miss_probe >= 0.95) 
 
 #Remove failed probes
 # Keep probes with < 0.95 missingness
@@ -305,12 +307,13 @@ sum(miss_probe > 0)
 sum(miss_probe > 0.05)
 #Number of probes with > 10% missing
 sum(miss_probe > 0.1)
-miss_probe_f <- cut(miss_probe, breaks = seq(0, 1, 0.1))
+miss_probe_f <- cut(miss_probe, breaks = seq(0, 1, 0.05))
 table(miss_probe_f)
 data.frame(missing_interval = miss_probe_f) %>%
 	filter(!is.na(missing_interval)) %>%
 	ggplot(aes(missing_interval)) + 
 	geom_bar() +
+	theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
 	labs(title = "Probe missing rate distribution")
 
 
@@ -330,7 +333,7 @@ Check status of normalization with boxplots and kernel density plots.
 
 ### Boxplots
 
-```{r cache = TRUE}
+```{r}
 
 boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
@@ -338,7 +341,7 @@ boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
 ### Density plots
 
-```{r cache = TRUE}
+```{r}
 
 plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
@@ -348,7 +351,7 @@ plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
 Three samples showed low median M-values. Remove them, then re-examine boxplots and density plots.
 
-```{r cache = TRUE}
+```{r}
 MvalMed <- apply(exprs(eset_Mvals), 2, function(x) median(x, na.rm = T))
 sort(MvalMed)[1:5]
 lowMedSamp <- names(sort(MvalMed)[1:3])
@@ -357,15 +360,16 @@ pdat <- pData(eset_Mvals)
 keep <- !pdat$Sample_Name %in% lowMedSamp
 
 eset_Mvals <- eset_Mvals[, keep]
+dim(eset_Mvals)
 ```
 
-```{r cache = TRUE}
+```{r}
 
 boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
 ```
 
-```{r cache = TRUE}
+```{r}
 
 plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
@@ -374,7 +378,7 @@ plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
 ## PCA
 
-```{r cache = TRUE}
+```{r }
 plotMDS(eset_Mvals, gene.selection = "common", pch = 16, main = "Point labels")
 plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
 
@@ -383,12 +387,13 @@ plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
 # Intra-assay CV of probes using duplicated samples
 
 
-```{r cache = TRUE}
+```{r}
 
 pdat <- pData(eset_Mvals)
 dupIDs <- pdat %>%
 	filter(!is.na(dupMrOSID)) %>%
 	pull(dupMrOSID)
+dupIDs
 
 e <- exprs(eset_Mvals)
 cbind(pdat$Sample_Name[match(dupIDs, pdat$Sample_Name)],
@@ -425,6 +430,12 @@ data.frame(intraAssayCV = probeCV) %>%
 	ggplot(aes(intraAssayCV)) + 
 	geom_density(fill = "blue")
 
+#Add probeCV to feature data
+f_dat <- fData(eset_Mvals)
+f_dat <- f_dat %>%
+	mutate(CVprobe = probeCV)
+fData(eset_Mvals) <- f_dat
+
 ```
 The intra-assay CV is `r mean(probeCV, na.rm = TRUE)`
 
@@ -438,69 +449,80 @@ There are `r sum(probeCV > 15 & !is.na(probeCV))` probes with intra-assay CV > 1
 
 # Output cleaned eset object
 
-All sample and probe QC completed.
+All sample and probe QC completed. Feature data includes probe CVs, so you can filter by that later if desired.
+
+```{r }
+write_rds(eset_Mvals, file = "../data/formatted/eset_Mvals_clean.rds")
+
+```
 
 # Association analysis
 
 Merge inflammation variables to pdat. Use limma for association.
 
-```{r cache = TRUE, results = "asis"}
+```{r results = "asis"}
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
+f_dat <- fData(eset_Mvals)
+sum(f_dat$CVprobe >= 100)
+sum(f_dat$CVprobe < 100)
+eset_Mvals <- eset_Mvals[f_dat$CVprobe < 100,]
 core_vars <- c("ID", "SITE", "V3AGE1")
-outcome_var <- c("CYCRPJH")
+outcome_var <- c("CYCRPJH", "CYTNFR2JH", "CYIFNGJH", "CYIL1BJH", "CYIL6JH", "CYTNFJH")
 
-p_dat <- pData(eset_Mvals)
+p_dat1 <- pData(eset_Mvals)
 pheno <- read_csv("../data/pheno/INFLAME.CSV")
-pheno <- pheno %>%
-	select(ID, SITE, V3AGE1, CYCRPJH) %>%
-	mutate(CRPlog = log(CYCRPJH)) %>%
+
+for(i in outcome_var){
+  myvars <- c(core_vars, i)
+
+  pheno2 <- pheno %>%
+	select(any_of(myvars)) %>%
 	mutate(SITE = as.factor(SITE))
+  pheno2$outcome <- log(pheno2[[i]] + 0.01)
 
-p_dat <- p_dat %>%
-	left_join(pheno, c("Sample_Name" = "ID")) %>%
+  p_dat <- p_dat1 %>%
+	left_join(pheno2, c("Sample_Name" = "ID")) %>%
 	arrange(sampOrder)
-map_int(p_dat, function(x) sum(is.na(x)))
+  #map_int(p_dat, function(x) sum(is.na(x)))
+  #Must remove missings from eset and pData
+  mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$outcome)
+  eset_Mvals_mod <- eset_Mvals[, mykeep]
+  p_dat <- p_dat[mykeep, ]
+  dim(eset_Mvals_mod)
+  dim(p_dat)
 
-#Must remove missings from eset and pData
-mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$CRPlog)
-eset_Mvals <- eset_Mvals[, mykeep]
-p_dat <- p_dat[mykeep, ]
-dim(eset_Mvals)
-dim(p_dat)
+  design <- model.matrix(~ outcome + V3AGE1 + SITE, data = p_dat)
+  fit <- lmFit(eset_Mvals_mod, design)
+  fit <- eBayes(fit)
+  results <- decideTests(fit[,"outcome"])
+  print(i)
+  summary(results)
 
-p_dat %>%
-	ggplot(aes(CYCRPJH, fill = "blue")) +
-	geom_density()
-
-p_dat %>%
-	ggplot(aes(CRPlog, fill = "blue")) +
-	geom_density()
-
-p_dat %>%
-	ggplot(aes(V3AGE1, fill = "blue")) +
-	geom_density()
-
-p_dat %>%
-	ggplot(aes(SITE)) +
-	geom_bar()
-
-design <- model.matrix(~ CRPlog + V3AGE1 + SITE, data = p_dat)
-fit <- lmFit(eset_Mvals, design)
-fit <- eBayes(fit)
-results <- decideTests(fit[,"CRPlog"])
-summary(results)
-
-annot_cols <- c("probeID", "CpG_chrm", "CpG_beg", "gene")
-topTable(fit, coef = "CRPlog", confint = TRUE, genelist = fit$genes[,annot_cols]) %>%
+  annot_cols <- c("probeID", "CpG_chrm", "CpG_beg", "gene")
+  topTable(fit, coef = "outcome", confint = TRUE, genelist = fit$genes[,annot_cols]) %>%
 	kable
 
-resultAll <- topTable(fit, coef = "CRPlog", confint = TRUE, sort.by = "none", number = Inf)
+  resultAll <- topTable(fit, coef = "outcome", confint = TRUE, sort.by = "none", number = Inf)
 
-EnhancedVolcano(resultAll,
+  EnhancedVolcano(resultAll,
 		lab = resultAll$probeID,
 		x = "logFC",
 		y = "P.Value")
 
-write_csv(resultAll, path = "../results/limma_CRPlog.csv")
+  write_csv(resultAll, file = paste0("../results/limma_",i,".csv"))
+
+}
+
+
+outcome_var <- c("CYCRPJH", "CYTNFR2JH", "CYIFNGJH", "CYIL1BJH", "CYIL6JH", "CYTNFJH")
+for(i in outcome_var){
+  res1 <- read_csv(paste0("../results/limma_", i, ".csv"))
+  top <- res1 %>%
+	  filter(adj.P.Val <= 0.05)
+  write_csv(top, file = paste0("../results/limma_", i, "_top.csv"))
+}
+
+
 
 ```
 
@@ -528,6 +550,7 @@ betaHor <- do.call(cbind, lapply(IDATprefixes,
 base::apply(betaHor, 2, function(x) sum(is.na(x))) %>%
 	base::sort(decreasing = TRUE) %>%
 	head
+sum(is.na(betaHor))/length(betaHor)
 
 dat_pData <- read_csv("../data/raw/Evans_Project_002/Evans_Project_002_Sample_Sheet.csv", skip = 8)
 dat_pData <- dat_pData %>%
@@ -550,31 +573,39 @@ sum(duplicated(betaHor_probes))
 rownames(betaHor)[duplicated(betaHor_probes)]
 betaHor_probes[duplicated(betaHor_probes)] <- rownames(betaHor)[duplicated(betaHor_probes)]
 
-Mvals_annot <- data.frame(probeID = Mvals_probes, onChip = 1L, stringsAsFactors = FALSE)
+rownames(betaHor) <- betaHor_probes
 
+#Mvals_annot <- data.frame(probeID = Mvals_probes, onChip = 1L, stringsAsFactors = FALSE)
 
-pheno <- fread("../data/pheno/INFLAME.CSV")
-pheno <- pheno[,.(ID, V3AGE1)]
-setnames(pheno, "V3AGE1", "Age")
+#subset to the 150 samples that passed QC.
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
+pdat <- pData(eset_Mvals)
+keep <- colnames(betaHor) %in% pdat$Sample_Name
+betaHor <- betaHor[,keep]
+
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+pheno <- pheno %>%
+	select(ID, Age = V3AGE1)
+
 #sample annotation in same order as samples in betaMat
-samp <- fread("../data/raw/Evans_Project_002/Evans_Project_002_Sample_Sheet.csv", skip = 8)
-samp[, index := seq_along(Sample_Name)]
-sum(colnames(betaMat)!= samp$Sample_Name)
-sum(colnames(betaMat)== samp$Sample_Name)
-samp <- merge(samp, pheno, by.x = "Sample_Name", by.y = "ID", all.x = TRUE)
-samp[, Tissue := "Blood WB"]
-samp[, Female := 0L]
-samp <- samp[order(index)]
-setnames(samp, "Sample_Name", "ID")
-samp <- samp[,.(ID, Age, Female, Tissue)]
-samp[is.na(Age), Age := as.integer(mean(samp$Age, na.rm = TRUE))]
-fwrite(samp, file = "../data/horvath/input/sampleAnnotation.csv", eol = "\r\n", na= "NA")
+betaSamp <- data.frame(ID = colnames(betaHor), betaOrder = seq_along(colnames(betaHor)), stringsAsFactors = F)
+
+pheno2 <- betaSamp %>%
+	left_join(pheno, by = "ID") %>%
+	arrange(betaOrder) %>%
+	mutate(Tissue = "Blood WB") %>%
+	mutate(Female = 0L) %>%
+	mutate(Age = ifelse(is.na(Age), as.integer(mean(Age, na.rm = T)), Age)) %>%
+	select(ID, Age, Female, Tissue)
+
+write.csv(pheno2, file = "../data/horvath/input/sampleAnnotation.csv", 
+	  row.names = F, quote = F)
 
 horvathProbe <- read.csv("../data/horvath/input/datMiniAnnotation3.csv", header=T, stringsAsFactors = F)#28587 probes
-sum(!horvathProbe$Name %in% rownames(betaMat)) #Darn, 2415 probes not in my data
+sum(!horvathProbe$Name %in% rownames(betaHor)) #Darn, 2415 probes not in my data
 
-betasDF <- as.data.frame(betaMat)
-betasDF$ProbeID <- row.names(betaMat)
+betasDF <- as.data.frame(betaHor)
+betasDF$ProbeID <- row.names(betaHor)
 betasDF <- betasDF[,c(ncol(betasDF), 1:ncol(betasDF)-1)]
 match1 <- match(horvathProbe[,1], betasDF[,1])
 betasDFreduced <- betasDF[match1,]
@@ -585,7 +616,7 @@ sum(temp)
 temp <- sapply(betasDFreduced, function(x) !is.numeric(x))
 sum(temp)
 
-write.csv(betasDFreduced, "../data/horvath/input/MethylData.csv", row.names = F, quote = F, eol = "\r\n")
+write.csv(betasDFreduced, "../data/horvath/input/MethylData.csv", row.names = F, quote = F)
 
 ```
 
