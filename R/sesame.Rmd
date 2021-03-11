@@ -65,6 +65,7 @@ Can check version of loaded packages with sessionInfo()
 ```{r, eval = FALSE}
 BiocManager::install("sesame", lib = "~/Rlibs")
 BiocManager::install("sesameData", lib = "~/Rlibs")
+#BiocManager::install('zwdzwd/sesameData', lib = "~/Rlibs")
 ```
 
 ## Load libraries
@@ -219,6 +220,9 @@ qcvars <- c("sample_name", "num_probes_cg", "num_na_cg", "frac_na_cg", "mean_int
 qc10 %>%
 	select(any_of(qcvars)) %>%
 	kable
+
+#annoS <- sesameDataPullVariantAnno_SNP('EPIC','hg19')
+
 ```
 
 ## Mean intensity
@@ -248,7 +252,7 @@ The fraction of NAs is a sign of masking due to a variety of reasons, including 
 Now we move back to the normalized Mvals to identify and remove failed samples and probes. I'll also remove probes that are recommended to be masked from the annotation file. 
 First, remove masked probes. Then, remove failed samples and failed probes. How many samples are missing across all probes? How many probes are missing across all samples? 
 
-```{r results = "asis"}
+```{r results = "asis", cache = TRUE}
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals.rds")
 dim(eset_Mvals)
 #Remove 210 probes without annotation
@@ -333,7 +337,7 @@ Check status of normalization with boxplots and kernel density plots.
 
 ### Boxplots
 
-```{r}
+```{r cache = TRUE}
 
 boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
@@ -341,7 +345,7 @@ boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
 ### Density plots
 
-```{r}
+```{r cache = TRUE}
 
 plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
@@ -387,7 +391,7 @@ plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
 # Intra-assay CV of probes using duplicated samples
 
 
-```{r}
+```{r cache = TRUE}
 
 pdat <- pData(eset_Mvals)
 dupIDs <- pdat %>%
@@ -436,6 +440,7 @@ f_dat <- f_dat %>%
 	mutate(CVprobe = probeCV)
 fData(eset_Mvals) <- f_dat
 
+write_rds(eset_Mvals, file = "../data/formatted/eset_Mvals_clean.rds")
 ```
 The intra-assay CV is `r mean(probeCV, na.rm = TRUE)`
 
@@ -447,14 +452,9 @@ There are `r sum(probeCV > 50 & !is.na(probeCV))` probes with intra-assay CV > 5
 
 There are `r sum(probeCV > 15 & !is.na(probeCV))` probes with intra-assay CV > 15.
 
-# Output cleaned eset object
 
 All sample and probe QC completed. Feature data includes probe CVs, so you can filter by that later if desired.
 
-```{r }
-write_rds(eset_Mvals, file = "../data/formatted/eset_Mvals_clean.rds")
-
-```
 
 # Blood cell type analysis
 
@@ -462,7 +462,7 @@ Does CBC or Horvath predicted cell types associate with PCs?
 
 Also, do Horvath predictions associate with CBC?
 
-```{r}
+```{r cache = TRUE}
 
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
 f_dat <- fData(eset_Mvals)
@@ -483,6 +483,24 @@ eset_PC <- eset_PC %>%
 	select(ID, PC1, PC2)
 
 pheno <- read_csv("../data/pheno/INFLAME.CSV")
+phenoV1 <- read_csv("../data/pheno/V1FEB14.CSV")
+phenoV1 <- phenoV1 %>%
+	select(ID, GIRACE, GIWHITE, GIAA, GIASIAN, GIHISPA)
+with(phenoV1, table(GIRACE, GIWHITE))
+with(phenoV1, table(GIRACE, GIAA))
+with(phenoV1, table(GIRACE, GIASIAN))
+with(phenoV1, table(GIRACE, GIHISPA))
+pheno <- pheno %>%
+	inner_join(phenoV1, by = "ID")
+pheno <- pheno %>%
+	inner_join(p_dat, by = c("ID" = "Sample_Name"))
+with(pheno, table(GIRACE))
+pheno %>%
+	filter(GIRACE != 1) %>%
+	select(ID, GIRACE)
+
+horvath <- read_csv("../data/horvath/output/MethylData.output.csv")
+table(horvath$predictedGender)
 
 eset_PC <- eset_PC %>%
 	inner_join(pheno, by = "ID")
@@ -519,11 +537,12 @@ eset_PC %>%
 	geom_point(aes(color = cut(LANEUT, breaks = 4)))
 ```
 
+
 # Association analysis
 
 Merge inflammation variables to pdat. Use limma for association.
 
-```{r results = "asis"}
+```{r cache = TRUE, results = "asis"}
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
 f_dat <- fData(eset_Mvals)
 sum(f_dat$CVprobe >= 100)
@@ -682,8 +701,49 @@ sum(temp)
 write.csv(betasDFreduced, "../data/horvath/input/MethylData.csv", row.names = F, quote = F)
 
 ```
+#Horvath cell type comparison
 
+From [wikipedia](https://en.wikipedia.org/wiki/White_blood_cell), lymphocytes include B cells, NK cells, and T cells (CD4, CD8, gamma-delta, and regulatory).
+Lymphocytes typically are 30% of white blood cells, and neutrophils are 60%. 
 
+```{r cache = TRUE}
+
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+horvath <- read_csv("../data/horvath/output/MethylData.output.csv")
+table(horvath$predictedGender)
+
+summary(horvath$CD8T)
+summary(horvath$CD4T)
+summary(horvath$NK)
+summary(horvath$Bcell)
+summary(horvath$Mono)
+summary(horvath$Gran)
+horvath <- horvath %>%
+	mutate(lymphocyte = CD8T + CD4T + NK + Bcell) %>%
+	inner_join(pheno, by = c("SampleID" = "ID") ) %>%
+	mutate(LALYMP = LALYMP/100,
+	       LAMONO = LAMONO/100)
+
+ggplot(horvath, aes(LALYMP, lymphocyte)) +
+	geom_point()
+cor.test(horvath$LALYMP, horvath$lymphocyte)
+cor.test(horvath$LALYMP, horvath$lymphocyte, method = "spearman")
+
+horvath %>%
+	arrange(LALYMP) %>%
+	select(LALYMP, lymphocyte) %>%
+	as.data.frame
+
+ggplot(horvath, aes(LAMONO, Mono)) +
+	geom_point()
+cor.test(horvath$LAMONO, horvath$Mono)
+cor.test(horvath$LAMONO, horvath$Mono, method = "spearman")
+
+horvath %>%
+	arrange(LAMONO) %>%
+	select(LAMONO, Mono) %>%
+	as.data.frame
+```
 
 
 # R session
