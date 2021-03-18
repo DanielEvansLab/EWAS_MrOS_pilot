@@ -77,6 +77,7 @@ library(sesame)
 library(wheatmap)
 library(multtest)
 library(limma)
+library(sva)
 library(RColorBrewer)
 library(EnhancedVolcano)
 library(kableExtra)
@@ -538,6 +539,7 @@ eset_PC %>%
 ```
 
 
+
 # Association analysis
 
 Merge inflammation variables to pdat. Use limma for association.
@@ -603,6 +605,81 @@ for(i in outcome_var){
 	  filter(adj.P.Val <= 0.05)
   write_csv(top, file = paste0("../results/limma_", i, "_top.csv"))
 }
+
+
+
+```
+
+# SVA
+
+Surrogate variable analysis (SVA) can be used to estimate and adjust for latent factors associated with technical batch effects.
+
+```{r cache = TRUE, results = "asis"}
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
+f_dat <- fData(eset_Mvals)
+e <- exprs(eset_Mvals)
+miss_probe <- apply(e, 1, function(x) sum(is.na(x)))
+sum(miss_probe > 0)
+sum(f_dat$CVprobe >= 100)
+sum(f_dat$CVprobe >= 100 & miss_probe == 0)
+sum(miss_probe == 0 & f_dat$CVprobe < 100)
+#SVA requires no missings in expression data
+eset_Mvals <- eset_Mvals[miss_probe == 0 & f_dat$CVprobe < 100, ] 
+core_vars <- c("ID", "SITE", "V3AGE1")
+outcome_var <- c("CYCRPJH", "CYTNFR2JH", "CYIFNGJH", "CYIL1BJH", "CYIL6JH", "CYTNFJH")
+
+p_dat1 <- pData(eset_Mvals)
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+
+myvars <- c(core_vars, outcome_var[1])
+
+pheno2 <- pheno %>%
+	select(any_of(myvars)) %>%
+	mutate(SITE = as.factor(SITE))
+pheno2$outcome <- log(pheno2$CYCRPJH + 0.01)
+
+p_dat <- p_dat1 %>%
+	left_join(pheno2, c("Sample_Name" = "ID")) %>%
+	arrange(sampOrder)
+map_int(p_dat, function(x) sum(is.na(x)))
+#Must remove missings from eset and pData
+mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$outcome)
+eset_Mvals_mod <- eset_Mvals[, mykeep]
+p_dat <- p_dat[mykeep, ]
+dim(eset_Mvals_mod)
+dim(p_dat)
+e <- exprs(eset_Mvals_mod)
+
+mod <- model.matrix(~ outcome + V3AGE1 + SITE, data = p_dat)
+mod0 <- model.matrix(~ V3AGE1 + SITE, data = p_dat)
+n.sv = num.sv(e, mod, method="leek")
+svobj = sva(e, mod, mod0, n.sv=n.sv)
+
+modSv = cbind(mod,svobj$sv)
+mod0Sv = cbind(mod0,svobj$sv)
+pValuesSv = f.pvalue(e,modSv,mod0Sv)
+qValuesSv = p.adjust(pValuesSv,method="BH")
+
+fit = lmFit(e, modSv)
+#fit <- lmFit(eset_Mvals_mod, design)
+fit <- eBayes(fit)
+annot_cols <- c("probeID", "CpG_chrm", "CpG_beg", "gene")
+topTable(fit, coef = "outcome", confint = TRUE)
+
+%>% kable
+
+  resultAll <- topTable(fit, coef = "outcome", confint = TRUE, sort.by = "none", number = Inf)
+
+  EnhancedVolcano(resultAll,
+		lab = resultAll$probeID,
+		x = "logFC",
+		y = "P.Value")
+
+  write_csv(resultAll, file = paste0("../results/limma_",i,".csv"))
+
+}
+
+
 
 
 
