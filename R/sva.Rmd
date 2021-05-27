@@ -1,0 +1,139 @@
+---
+title: "EWAS SVA for cell clustering"
+author: "Dan Evans"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  BiocStyle::html_document:
+    toc_float: true
+    toc_depth: 3
+    fig_caption: yes
+
+fontsize: 14 pt
+
+vignette: >
+  %\VignetteIndexEntry{EWAS SVA for cell clustering}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+
+---
+
+# Introduction
+
+EPIC array has type 1 and type 2 probes. Type 1 probes are from the old 27K array that uses 2 bead types per CpG. The type I probes are labeled I-green and I-red. The newer type 2 probes uses one bead type. Most of the EPIC array probes are type 2. 
+
+DNA methylation quantity is expressed as $\beta$ 
+
+$$ \beta = M/(M + U)  $$
+
+Where M = hybridization signal from a methylated version of a cytosine nucleotide and 
+U =  hybridization signal from an unmethylated version of a cytosine nucleotide. 
+
+Beta can be interpreted as the proportion of methylation signal for a probe, and values range from 0 to 1. Beta is easy to interpret for humans, but typically has a bimodal distribution that is suboptimal for statistical modeling. Thus, we analyze M-values, which are another way to express methylation values for probes. 
+
+$$ M-value = log_2(M/U) $$
+
+A detection probability represents the probability of a detected signal being background flourescence. If the probability is high, the signal is more likely to be background, and the value should be set to missing.
+
+Standard workflows suggest to remove data points with detection P-value > 0.05.  
+
+```{r, setup}
+knitr::opts_chunk$set(cache.lazy = FALSE)
+```
+
+## Load libraries
+```{r message = FALSE}
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(sesame)
+library(wheatmap)
+library(multtest)
+library(limma)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(kableExtra)
+```
+
+
+# Blood cell type analysis
+
+Does CBC or Horvath predicted cell types associate with PCs?
+
+Also, do Horvath predictions associate with CBC?
+
+```{r cache = TRUE}
+
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
+f_dat <- fData(eset_Mvals)
+p_dat <- pData(eset_Mvals)
+e <- exprs(eset_Mvals)
+miss_probe <- apply(e, 1, function(x) sum(is.na(x)))
+sum(miss_probe > 0)
+sum(f_dat$CVprobe >= 100)
+sum(f_dat$CVprobe >= 100 & miss_probe == 0)
+sum(miss_probe == 0 & f_dat$CVprobe < 100)
+eset_sub <- eset_Mvals[miss_probe == 0 & f_dat$CVprobe < 100, ] 
+eset_pca <- prcomp(t(exprs(eset_sub)), center = TRUE, scale = TRUE)
+summary(eset_pca)$importance[,1:10]
+eset_PC <- eset_pca[["x"]]
+eset_PC <- as.data.frame(eset_PC)
+eset_PC$ID <- row.names(eset_PC)
+eset_PC <- eset_PC %>%
+	select(ID, PC1, PC2)
+
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
+phenoV1 <- read_csv("../data/pheno/V1FEB14.CSV")
+phenoV1 <- phenoV1 %>%
+	select(ID, GIRACE, GIWHITE, GIAA, GIASIAN, GIHISPA)
+with(phenoV1, table(GIRACE, GIWHITE))
+with(phenoV1, table(GIRACE, GIAA))
+with(phenoV1, table(GIRACE, GIASIAN))
+with(phenoV1, table(GIRACE, GIHISPA))
+pheno <- pheno %>%
+	inner_join(phenoV1, by = "ID")
+pheno <- pheno %>%
+	inner_join(p_dat, by = c("ID" = "Sample_Name"))
+with(pheno, table(GIRACE))
+pheno %>%
+	filter(GIRACE != 1) %>%
+	select(ID, GIRACE)
+
+horvath <- read_csv("../data/horvath/output/MethylData.output.csv")
+table(horvath$predictedGender)
+
+eset_PC <- eset_PC %>%
+	inner_join(pheno, by = "ID")
+
+summary(eset_PC$LABASO) #basophils 
+table(cut(eset_PC$LABASO, breaks = 4))
+summary(eset_PC$LAEOSI) #eosinophils 
+table(cut(eset_PC$LAEOSI, breaks = 4))
+summary(eset_PC$LALYMP) #lymphocytes 
+table(cut(eset_PC$LALYMP, breaks = 4))
+summary(eset_PC$LAMONO) #monocytes 
+table(cut(eset_PC$LAMONO, breaks = 4))
+summary(eset_PC$LANEUT) #neutrophils 
+table(cut(eset_PC$LANEUT, breaks = 4))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LABASO, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LAEOSI, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LALYMP, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LAMONO, breaks = 4)))
+
+eset_PC %>%
+	ggplot(aes(PC1, PC2)) +
+	geom_point(aes(color = cut(LANEUT, breaks = 4)))
+```
+
+

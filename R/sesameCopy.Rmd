@@ -58,7 +58,7 @@ knitr::opts_chunk$set(cache.lazy = FALSE)
 
 Installation of sesame and dependencies went fine, no errors or warnings.
 
-Upgrade installed sesame version 1.8.12 and sesameData 1.8.10 under Bioconductor 3.12.
+Upgrade installed sesame version 1.6.
 
 Can check version of loaded packages with sessionInfo()
 
@@ -79,6 +79,7 @@ library(multtest)
 library(limma)
 library(sva)
 library(RColorBrewer)
+library(EnhancedVolcano)
 library(kableExtra)
 ```
 
@@ -88,7 +89,7 @@ Reading the data with openSesame takes about 55 minutes.
 
 Create ExpressionSet object saved to disk for easy subsequent loading.
 
-```{r}
+```{r message = FALSE, warning = FALSE, cache = TRUE}
 
 # manifest <- read.csv("../data/raw/Evans_Project_002/CombinedManifestEPICplus.manifest.LifeEGX.csv", header = T, stringsAsFactors = F, na.strings = c("NA", ""))
 
@@ -130,7 +131,6 @@ dat_pData <- dat_pData %>%
 	arrange(sampOrder)
 
 colnames(Mvals) <- dat_pData$Sample_Name
-colnames(betas) <- dat_pData$Sample_Name
 row.names(dat_pData) <- dat_pData$Sample_Name
 
 # Feature annotation
@@ -195,7 +195,6 @@ dat_fData <- dat_fData[match(Mvals_probes, dat_fData$probeID),]
 sum(Mvals_probes != dat_fData$probeID)
 row.names(dat_fData) <- dat_fData$probeID
 rownames(Mvals) <- dat_fData$probeID
-rownames(betas) <- dat_fData$probeID
 
 #Create eset
 eset_Mvals <- ExpressionSet(assayData = Mvals,
@@ -205,24 +204,14 @@ eset_Mvals <- ExpressionSet(assayData = Mvals,
 
 write_rds(eset_Mvals, path = "../data/formatted/eset_Mvals.rds")
 
-eset_betas <- ExpressionSet(assayData = betas,
-			    phenoData = AnnotatedDataFrame(dat_pData),
-			    featureData = AnnotatedDataFrame(dat_fData)
-			    )
-
-write_rds(eset_betas, path = "../data/formatted/eset_betas.rds")
 ```
 
 ## Sesame standard QC
 
 
-```{r results = "asis"}
-eset_Mvals <- read_rds("../data/formatted/eset_Mvals.rds")
+```{r message = FALSE, warning = FALSE, cache = TRUE, results = "asis"}
 pdat <- pData(eset_Mvals)
 IDATprefixes <- searchIDATprefixes(dir.name = "../data/raw/Evans_Project_002/idat_Files")
-#Must specify custom manifest for readIDATpair so that sesameQC can run
-#manifest <- readRDS("../data/raw/Evans_Project_002/OpenDMAP_sesame_manifest.rds")
-#ssets <- lapply(IDATprefixes, readIDATpair, platform = "custom", manifest = manifest)
 ssets <- lapply(IDATprefixes, readIDATpair)
 qc10 <- do.call(rbind, lapply(ssets, function(x) as.data.frame(sesameQC(x))))
 qc10 <- qc10 %>%
@@ -233,21 +222,7 @@ qc10 %>%
 	select(any_of(qcvars)) %>%
 	kable
 
-annoS <- sesameDataPullVariantAnno_SNP('EPIC','hg19')
-annoI <- sesameDataPullVariantAnno_InfiniumI('EPIC','hg19')
-sum(names(ssets) != pdat$Basename)
-sum(names(ssets) == pdat$Basename)
-
-vcfFormatter <- function(Filename, Basename){
-	formatVCF(ssets[[Basename]], 
-		  annoS = annoS,
-		  annoI = annoI,
-		  vcf = paste0("../data/vcf/single/", Filename, ".vcf"))
-}
-list(Filename = pdat$Sample_Name, Basename = pdat$Basename) %>%
-	pwalk(vcfFormatter)
-#single sample 
-#formatVCF(ssets[[1]], annoS=annoS, annoI=annoI, vcf = "../data/formatted/pilot.vcf")
+#annoS <- sesameDataPullVariantAnno_SNP('EPIC','hg19')
 
 ```
 
@@ -278,7 +253,7 @@ The fraction of NAs is a sign of masking due to a variety of reasons, including 
 Now we move back to the normalized Mvals to identify and remove failed samples and probes. I'll also remove probes that are recommended to be masked from the annotation file. 
 First, remove masked probes. Then, remove failed samples and failed probes. How many samples are missing across all probes? How many probes are missing across all samples? 
 
-```{r results = "asis"}
+```{r results = "asis", cache = TRUE}
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals.rds")
 dim(eset_Mvals)
 #Remove 210 probes without annotation
@@ -363,7 +338,7 @@ Check status of normalization with boxplots and kernel density plots.
 
 ### Boxplots
 
-```{r}
+```{r cache = TRUE}
 
 boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
@@ -371,7 +346,7 @@ boxplot(exprs(eset_Mvals), las = 2, ylab = "M-values")
 
 ### Density plots
 
-```{r}
+```{r cache = TRUE}
 
 plotDensities(eset_Mvals, main = "M-values", legend = FALSE)
 
@@ -417,7 +392,7 @@ plotMDS(eset_Mvals, gene.selection = "common", main = "Sample ID labels")
 # Intra-assay CV of probes using duplicated samples
 
 
-```{r}
+```{r cache = TRUE}
 
 pdat <- pData(eset_Mvals)
 dupIDs <- pdat %>%
@@ -488,14 +463,11 @@ Does CBC or Horvath predicted cell types associate with PCs?
 
 Also, do Horvath predictions associate with CBC?
 
-```{r}
+```{r cache = TRUE}
 
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
 f_dat <- fData(eset_Mvals)
 p_dat <- pData(eset_Mvals)
-p_dat %>%
-	filter(str_detect(Sample_Name, "dup*", negate = TRUE)) %>%
-	write_csv(file = "../data/formatted/sampleListClean.csv")
 e <- exprs(eset_Mvals)
 miss_probe <- apply(e, 1, function(x) sum(is.na(x)))
 sum(miss_probe > 0)
@@ -575,7 +547,7 @@ eset_PC %>%
 
 Merge inflammation variables to pdat. Use limma for association.
 
-```{r results = "asis"}
+```{r cache = TRUE, results = "asis"}
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
 f_dat <- fData(eset_Mvals)
 sum(f_dat$CVprobe >= 100)
@@ -585,73 +557,7 @@ core_vars <- c("ID", "SITE", "V3AGE1")
 outcome_var <- c("CYCRPJH", "CYTNFR2JH", "CYIFNGJH", "CYIL1BJH", "CYIL6JH", "CYTNFJH")
 
 p_dat1 <- pData(eset_Mvals)
-pheno <- read_csv("../data/pheno/INFLAME.CSV") %>%
-	select(ID, SITE, CYCRPJH, LALYMP)
-phenoV3 <- read_csv("../data/pheno/v3feb21.csv", guess_max = 4682)
-phenoV3 <- phenoV3 %>%
-	select(ID, HWBMI, TURSMOKE, V3AGE1)
-pheno2 <- inner_join(pheno, phenoV3, by = "ID") %>%
-	mutate(SITE = as.factor(SITE),
-	       TURSMOKE = factor(as.character(TURSMOKE), levels = c("0", "1", "2"),
-				 labels = c("never", "former", "current"))
-	       )
-
-#Work on CRP right now. Make loop for other inflammatory markers later.
-p_dat <- p_dat1 %>%
-  left_join(pheno2, c("Sample_Name" = "ID")) %>%
-  arrange(sampOrder)
-map_int(p_dat, function(x) sum(is.na(x)))
-#Must remove missings from eset and pData
-mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$HWBMI) & !is.na(p_dat$TURSMOKE)
-eset_Mvals_mod <- eset_Mvals[, mykeep]
-p_dat <- p_dat[mykeep, ]
-dim(eset_Mvals_mod)
-dim(p_dat)
-#Create outcome variable and merge horvath cell estimates
-p_dat <- p_dat %>%
-	mutate(outcome = CYCRPJH,
-	       outcome_log = log(CYCRPJH + 0.01),
-	       outcome_log_quin = cut(outcome_log,
-				  breaks = quantile(outcome_log, probs = seq(0, 1, 0.2)), 
-				  labels = c("LL", "LM", "M", "HM", "HH"),
-				  include.lowest = T, 
-				  ordered_result = T
-				  ),
-	       outcome_log_quin_num = as.numeric(outcome_log_quin),
-	       outcome_quin = cut(outcome,
-				  breaks = quantile(outcome, probs = seq(0, 1, 0.2)),
-				  labels = c("LL", "LM", "M", "HM", "HH"),
-				  include.lowest = T,
-				  ordered_result = T
-				  ),
-	       outcome_quin_num = as.numeric(outcome_quin)
-	       )
-
-with(p_dat, table(outcome_log_quin, outcome_quin))
-
-design <- model.matrix(~ outcome_quin_num + V3AGE1 + SITE + HWBMI + TURSMOKE + LALYMP, data = p_dat)
-cm <- makeContrasts(HHvsLL = outcome_quinHH - outcome_quinLL,
-		      HMvsLL = outcome_quinHM - outcome_quin,
-		      HHvsM = outcome_quinHH - outcome_quinM,
-		      levels = design)
-fit <- lmFit(eset_Mvals_mod, design)
-#  fit2 <- contrasts.fit(fit, contrasts = cm)
-#  fit2 <- eBayes(fit2)
-#  results <- decideTests(fit2)
-#  summary(results)
-
-fit <- eBayes(fit)
-topTable(fit, coef = "outcome_quin_num")
-topTable(fit, coef = "LALYMP")
-results <- topTable(fit, coef = "outcome_num", number = Inf)
-sum(results$adj.P.Val <= 0.05)
-
-
-
-
-
-
-
+pheno <- read_csv("../data/pheno/INFLAME.CSV")
 
 for(i in outcome_var){
   myvars <- c(core_vars, i)
@@ -664,7 +570,7 @@ for(i in outcome_var){
   p_dat <- p_dat1 %>%
 	left_join(pheno2, c("Sample_Name" = "ID")) %>%
 	arrange(sampOrder)
-  map_int(p_dat, function(x) sum(is.na(x)))
+  #map_int(p_dat, function(x) sum(is.na(x)))
   #Must remove missings from eset and pData
   mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$outcome)
   eset_Mvals_mod <- eset_Mvals[, mykeep]
@@ -672,24 +578,10 @@ for(i in outcome_var){
   dim(eset_Mvals_mod)
   dim(p_dat)
 
-  design <- model.matrix(~ outcome_num + V3AGE1 + SITE + HWBMI + TURSMOKE + LALYMP, data = p_dat)
-  cm <- makeContrasts(HHvsLL = outcome_quinHH - outcome_quinLL,
-		      HMvsLL = outcome_quinHM - outcome_quin,
-		      HHvsM = outcome_quinHH - outcome_quinM,
-		      levels = design)
-  fit <- lmFit(eset_Mvals_mod, design)
-#  fit2 <- contrasts.fit(fit, contrasts = cm)
-#  fit2 <- eBayes(fit2)
-#  results <- decideTests(fit2)
-#  summary(results)
-
+  design <- model.matrix(~ outcome + V3AGE1 + SITE, data = p_dat)
   fit <- lmFit(eset_Mvals_mod, design)
   fit <- eBayes(fit)
-  topTable(fit, coef = "outcome_num")
-  results <- topTable(fit, coef = "outcome_num", number = Inf)
-  sum(results$adj.P.Val <= 0.05)
-
-    results <- decideTests(fit[,"outcome_quin"])
+  results <- decideTests(fit[,"outcome"])
   print(i)
   summary(results)
 
@@ -699,10 +591,10 @@ for(i in outcome_var){
 
   resultAll <- topTable(fit, coef = "outcome", confint = TRUE, sort.by = "none", number = Inf)
 
-#  EnhancedVolcano(resultAll,
-#		lab = resultAll$probeID,
-#		x = "logFC",
-#		y = "P.Value")
+  EnhancedVolcano(resultAll,
+		lab = resultAll$probeID,
+		x = "logFC",
+		y = "P.Value")
 
   write_csv(resultAll, file = paste0("../results/limma_",i,".csv"))
 
@@ -723,7 +615,7 @@ for(i in outcome_var){
 
 # Replication of previous CRP results
 
-```{r}
+```{r cache = TRUE}
 
 res1 <- read_csv(paste0("../results/limma_", "CYCRPJH", ".csv"))
 pub_res <- read_xlsx(path = "../results/ligthart_2016_CRP_EWAS_TableS3.xlsx", skip = 1)
@@ -758,7 +650,7 @@ repl %>%
 
 Surrogate variable analysis (SVA) can be used to estimate and adjust for latent factors associated with technical batch effects.
 
-```{r eval = FALSE}
+```{r cache = TRUE, results = "asis"}
 eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
 f_dat <- fData(eset_Mvals)
 e <- exprs(eset_Mvals)
@@ -784,10 +676,6 @@ p_dat1 <- pData(eset_Mvals)
 pheno <- read_csv("../data/pheno/INFLAME.CSV")
 pheno <- pheno %>%
 	mutate(TURSMOKE = ifelse(TURSMOKE == 2, 1, TURSMOKE))
-phenoV1 <- read_csv("../data/pheno/V1FEB14.CSV", guess_max = 5994)
-phenoV3 <- read_csv("../data/pheno/v3feb21.csv", guess_max = 4681)
-phenoV3 <- phenoV3 %>%
-	select(ID, HWBMI)
 
 myvars <- c(core_vars, outcome_var[1])
 
@@ -948,7 +836,7 @@ write.csv(betasDFreduced, "../data/horvath/input/MethylData.csv", row.names = F,
 From [wikipedia](https://en.wikipedia.org/wiki/White_blood_cell), lymphocytes include B cells, NK cells, and T cells (CD4, CD8, gamma-delta, and regulatory).
 Lymphocytes typically are 30% of white blood cells, and neutrophils are 60%. 
 
-```{r}
+```{r cache = TRUE}
 
 pheno <- read_csv("../data/pheno/INFLAME.CSV")
 horvath <- read_csv("../data/horvath/output/MethylData.output.csv")
