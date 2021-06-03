@@ -624,10 +624,11 @@ p_dat <- p_dat %>%
 				  include.lowest = T,
 				  ordered_result = T
 				  ),
-	       outcome_quin_num = as.numeric(outcome_quin)
+	       outcome_quin_num = as.numeric(outcome_quin) - 1
 	       )
 
 with(p_dat, table(outcome_log_quin, outcome_quin))
+with(p_dat, table(outcome_quin, outcome_quin_num))
 
 design <- model.matrix(~ outcome_quin_num + V3AGE1 + SITE + HWBMI + TURSMOKE + LALYMP, data = p_dat)
 cm <- makeContrasts(HHvsLL = outcome_quinHH - outcome_quinLL,
