@@ -43,57 +43,7 @@
 %%% loading packages, author definitions
 
 %\documentclass[twocolumn]{bmcart}% uncomment this for twocolumn layout and comment line below
-\documentclass{bmcart}\usepackage[]{graphicx}\usepackage[]{color}
-% maxwidth is the original width if it is less than linewidth
-% otherwise use linewidth (to make sure the graphics do not exceed the margin)
-\makeatletter
-\def\maxwidth{ %
-  \ifdim\Gin@nat@width>\linewidth
-    \linewidth
-  \else
-    \Gin@nat@width
-  \fi
-}
-\makeatother
-
-\definecolor{fgcolor}{rgb}{0.345, 0.345, 0.345}
-\newcommand{\hlnum}[1]{\textcolor[rgb]{0.686,0.059,0.569}{#1}}%
-\newcommand{\hlstr}[1]{\textcolor[rgb]{0.192,0.494,0.8}{#1}}%
-\newcommand{\hlcom}[1]{\textcolor[rgb]{0.678,0.584,0.686}{\textit{#1}}}%
-\newcommand{\hlopt}[1]{\textcolor[rgb]{0,0,0}{#1}}%
-\newcommand{\hlstd}[1]{\textcolor[rgb]{0.345,0.345,0.345}{#1}}%
-\newcommand{\hlkwa}[1]{\textcolor[rgb]{0.161,0.373,0.58}{\textbf{#1}}}%
-\newcommand{\hlkwb}[1]{\textcolor[rgb]{0.69,0.353,0.396}{#1}}%
-\newcommand{\hlkwc}[1]{\textcolor[rgb]{0.333,0.667,0.333}{#1}}%
-\newcommand{\hlkwd}[1]{\textcolor[rgb]{0.737,0.353,0.396}{\textbf{#1}}}%
-\let\hlipl\hlkwb
-
-\usepackage{framed}
-\makeatletter
-\newenvironment{kframe}{%
- \def\at@end@of@kframe{}%
- \ifinner\ifhmode%
-  \def\at@end@of@kframe{\end{minipage}}%
-  \begin{minipage}{\columnwidth}%
- \fi\fi%
- \def\FrameCommand##1{\hskip\@totalleftmargin \hskip-\fboxsep
- \colorbox{shadecolor}{##1}\hskip-\fboxsep
-     % There is no \\@totalrightmargin, so:
-     \hskip-\linewidth \hskip-\@totalleftmargin \hskip\columnwidth}%
- \MakeFramed {\advance\hsize-\width
-   \@totalleftmargin\z@ \linewidth\hsize
-   \@setminipage}}%
- {\par\unskip\endMakeFramed%
- \at@end@of@kframe}
-\makeatother
-
-\definecolor{shadecolor}{rgb}{.97, .97, .97}
-\definecolor{messagecolor}{rgb}{0, 0, 0}
-\definecolor{warningcolor}{rgb}{1, 0, 1}
-\definecolor{errorcolor}{rgb}{1, 0, 0}
-\newenvironment{knitrout}{}{} % an empty environment to be redefined in TeX
-
-\usepackage{alltt}
+\documentclass{bmcart}
 
 %%% Load packages
 \usepackage{amsthm,amsmath}
@@ -127,7 +77,6 @@
 \endlocaldefs
 
 %%% Begin ...
-\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
 \begin{document}
 
 %%% Start of article front matter
@@ -323,94 +272,57 @@ estimate the expected value as
 %
 Thus we observe that this expected value is finite for all $v>0$ (also see \cite{koon,xjon,marg,schn,koha,issnic}).
 
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+library(tidyverse)
+library(readxl)
+library(multtest)
+library(limma)
+library(sva)
+library(RColorBrewer)
+@
+
+<<table1>>=
+
+eset_Mvals <- read_rds("../data/formatted/eset_Mvals_clean.rds")
+f_dat <- fData(eset_Mvals)
+sum(f_dat$CVprobe >= 100)
+sum(f_dat$CVprobe < 100)
+eset_Mvals <- eset_Mvals[f_dat$CVprobe < 100,]
+core_vars <- c("ID", "SITE", "V3AGE1")
+outcome_var <- c("CYCRPJH", "CYTNFR2JH", "CYIFNGJH", "CYIL1BJH", "CYIL6JH", "CYTNFJH")
+
+p_dat1 <- pData(eset_Mvals)
+pheno <- read_csv("../data/pheno/INFLAME.CSV") %>%
+	select(ID, SITE, CYCRPJH, LALYMP)
+phenoV3 <- read_csv("../data/pheno/v3feb21.csv", guess_max = 4682)
+phenoV3 <- phenoV3 %>%
+	select(ID, HWBMI, TURSMOKE, V3AGE1)
+pheno2 <- inner_join(pheno, phenoV3, by = "ID") %>%
+	mutate(SITE = as.factor(SITE),
+	       TURSMOKE = factor(as.character(TURSMOKE), levels = c("0", "1", "2"),
+				 labels = c("never", "former", "current"))
+	       )
+
+#Work on CRP right now. Make loop for other inflammatory markers later.
+p_dat <- p_dat1 %>%
+  left_join(pheno2, c("Sample_Name" = "ID")) %>%
+  arrange(sampOrder)
+map_int(p_dat, function(x) sum(is.na(x)))
+#Must remove missings from eset and pData
+mykeep <- !is.na(p_dat$SITE) & !is.na(p_dat$V3AGE1) & !is.na(p_dat$HWBMI) & !is.na(p_dat$TURSMOKE)
+eset_Mvals_mod <- eset_Mvals[, mykeep]
+p_dat <- p_dat[mykeep, ]
+dim(eset_Mvals_mod)
+dim(p_dat)
+
+#Make table 1
+p_dat %>%
+	summarize(mean_CRP = mean(CYCRPJH), sd_CRP = sd(CYCRPJH)) %>%
+	kable()
 
 
-\begin{knitrout}
-\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
-\begin{alltt}
-\hlstd{eset_Mvals} \hlkwb{<-} \hlkwd{read_rds}\hlstd{(}\hlstr{"../data/formatted/eset_Mvals_clean.rds"}\hlstd{)}
-\hlstd{f_dat} \hlkwb{<-} \hlkwd{fData}\hlstd{(eset_Mvals)}
-\hlkwd{sum}\hlstd{(f_dat}\hlopt{$}\hlstd{CVprobe} \hlopt{>=} \hlnum{100}\hlstd{)}
-\end{alltt}
-\begin{verbatim}
-## [1] 5532
-\end{verbatim}
-\begin{alltt}
-\hlkwd{sum}\hlstd{(f_dat}\hlopt{$}\hlstd{CVprobe} \hlopt{<} \hlnum{100}\hlstd{)}
-\end{alltt}
-\begin{verbatim}
-## [1] 684481
-\end{verbatim}
-\begin{alltt}
-\hlstd{eset_Mvals} \hlkwb{<-} \hlstd{eset_Mvals[f_dat}\hlopt{$}\hlstd{CVprobe} \hlopt{<} \hlnum{100}\hlstd{,]}
-\hlstd{core_vars} \hlkwb{<-} \hlkwd{c}\hlstd{(}\hlstr{"ID"}\hlstd{,} \hlstr{"SITE"}\hlstd{,} \hlstr{"V3AGE1"}\hlstd{)}
-\hlstd{outcome_var} \hlkwb{<-} \hlkwd{c}\hlstd{(}\hlstr{"CYCRPJH"}\hlstd{,} \hlstr{"CYTNFR2JH"}\hlstd{,} \hlstr{"CYIFNGJH"}\hlstd{,} \hlstr{"CYIL1BJH"}\hlstd{,} \hlstr{"CYIL6JH"}\hlstd{,} \hlstr{"CYTNFJH"}\hlstd{)}
-
-\hlstd{p_dat1} \hlkwb{<-} \hlkwd{pData}\hlstd{(eset_Mvals)}
-\hlstd{pheno} \hlkwb{<-} \hlkwd{read_csv}\hlstd{(}\hlstr{"../data/pheno/INFLAME.CSV"}\hlstd{)} \hlopt{%>%}
-        \hlkwd{select}\hlstd{(ID, SITE, CYCRPJH, LALYMP)}
-\end{alltt}
-
-
-{\ttfamily\noindent\itshape\color{messagecolor}{\#\# \\\#\# -- Column specification ----------------------------------------------------------------------------\\\#\# cols(\\\#\# \ \ .default = col\_double(),\\\#\# \ \ SITE = col\_character(),\\\#\# \ \ ID = col\_character()\\\#\# )\\\#\# i Use `spec()` for the full column specifications.}}\begin{alltt}
-\hlstd{phenoV3} \hlkwb{<-} \hlkwd{read_csv}\hlstd{(}\hlstr{"../data/pheno/v3feb21.csv"}\hlstd{,} \hlkwc{guess_max} \hlstd{=} \hlnum{4682}\hlstd{)}
-\end{alltt}
-
-
-{\ttfamily\noindent\itshape\color{messagecolor}{\#\# \\\#\# -- Column specification ----------------------------------------------------------------------------\\\#\# cols(\\\#\# \ \ .default = col\_double(),\\\#\# \ \ ID = col\_character(),\\\#\# \ \ V3DATE = col\_character(),\\\#\# \ \ V3HVDATE = col\_character(),\\\#\# \ \ SITE = col\_character(),\\\#\# \ \ GISEDOD = col\_character(),\\\#\# \ \ CISTAFF = col\_character(),\\\#\# \ \ LSSTAFF = col\_character(),\\\#\# \ \ TMSTAFF = col\_character(),\\\#\# \ \ TBSTAFF = col\_character(),\\\#\# \ \ HWSTAFF = col\_character(),\\\#\# \ \ GSSTAFF = col\_character(),\\\#\# \ \ NFCSTAFF = col\_character(),\\\#\# \ \ NFWSTAFF = col\_character(),\\\#\# \ \ BPAASTAF = col\_character(),\\\#\# \ \ NPSTAFF = col\_character(),\\\#\# \ \ BPSTAFF = col\_character(),\\\#\# \ \ SCSTAFF = col\_character(),\\\#\# \ \ SCUSTAFF = col\_character(),\\\#\# \ \ V3AMSTF = col\_character(),\\\#\# \ \ TMTIMEM = col\_time(format = "{}"{})\\\#\# \ \ \# ... with 1 more columns\\\#\# )\\\#\# i Use `spec()` for the full column specifications.}}\begin{alltt}
-\hlstd{phenoV3} \hlkwb{<-} \hlstd{phenoV3} \hlopt{%>%}
-        \hlkwd{select}\hlstd{(ID, HWBMI, TURSMOKE, V3AGE1)}
-\hlstd{pheno2} \hlkwb{<-} \hlkwd{inner_join}\hlstd{(pheno, phenoV3,} \hlkwc{by} \hlstd{=} \hlstr{"ID"}\hlstd{)} \hlopt{%>%}
-        \hlkwd{mutate}\hlstd{(}\hlkwc{SITE} \hlstd{=} \hlkwd{as.factor}\hlstd{(SITE),}
-               \hlkwc{TURSMOKE} \hlstd{=} \hlkwd{factor}\hlstd{(}\hlkwd{as.character}\hlstd{(TURSMOKE),} \hlkwc{levels} \hlstd{=} \hlkwd{c}\hlstd{(}\hlstr{"0"}\hlstd{,} \hlstr{"1"}\hlstd{,} \hlstr{"2"}\hlstd{),}
-                                 \hlkwc{labels} \hlstd{=} \hlkwd{c}\hlstd{(}\hlstr{"never"}\hlstd{,} \hlstr{"former"}\hlstd{,} \hlstr{"current"}\hlstd{))}
-               \hlstd{)}
-
-\hlcom{#Work on CRP right now. Make loop for other inflammatory markers later.}
-\hlstd{p_dat} \hlkwb{<-} \hlstd{p_dat1} \hlopt{%>%}
-  \hlkwd{left_join}\hlstd{(pheno2,} \hlkwd{c}\hlstd{(}\hlstr{"Sample_Name"} \hlstd{=} \hlstr{"ID"}\hlstd{))} \hlopt{%>%}
-  \hlkwd{arrange}\hlstd{(sampOrder)}
-\hlkwd{map_int}\hlstd{(p_dat,} \hlkwa{function}\hlstd{(}\hlkwc{x}\hlstd{)} \hlkwd{sum}\hlstd{(}\hlkwd{is.na}\hlstd{(x)))}
-\end{alltt}
-\begin{verbatim}
-##      Sample_Name      Sample_Well      Source_Well     Sample_Plate     Sample_Group          Pool_ID       Sentrix_ID Sentrix_Position         Basename        sampOrder        dupMrOSID             SITE 
-##                0                0                0                0                0              150                0                0                0                0              143                7 
-##          CYCRPJH           LALYMP            HWBMI         TURSMOKE           V3AGE1 
-##                7                7                7                7                7
-\end{verbatim}
-\begin{alltt}
-\hlcom{#Must remove missings from eset and pData}
-\hlstd{mykeep} \hlkwb{<-} \hlopt{!}\hlkwd{is.na}\hlstd{(p_dat}\hlopt{$}\hlstd{SITE)} \hlopt{& !}\hlkwd{is.na}\hlstd{(p_dat}\hlopt{$}\hlstd{V3AGE1)} \hlopt{& !}\hlkwd{is.na}\hlstd{(p_dat}\hlopt{$}\hlstd{HWBMI)} \hlopt{& !}\hlkwd{is.na}\hlstd{(p_dat}\hlopt{$}\hlstd{TURSMOKE)}
-\hlstd{eset_Mvals_mod} \hlkwb{<-} \hlstd{eset_Mvals[, mykeep]}
-\hlstd{p_dat} \hlkwb{<-} \hlstd{p_dat[mykeep, ]}
-\hlkwd{dim}\hlstd{(eset_Mvals_mod)}
-\end{alltt}
-\begin{verbatim}
-## Features  Samples 
-##   684481      143
-\end{verbatim}
-\begin{alltt}
-\hlkwd{dim}\hlstd{(p_dat)}
-\end{alltt}
-\begin{verbatim}
-## [1] 143  17
-\end{verbatim}
-\begin{alltt}
-\hlcom{#Make table 1}
-\hlstd{p_dat} \hlopt{%>%}
-        \hlkwd{summarize}\hlstd{(}\hlkwc{mean_CRP} \hlstd{=} \hlkwd{mean}\hlstd{(CYCRPJH),} \hlkwc{sd_CRP} \hlstd{=} \hlkwd{sd}\hlstd{(CYCRPJH))} \hlopt{%>%}
-        \hlkwd{kable}\hlstd{()}
-\end{alltt}
-\end{kframe}
-\begin{tabular}{r|r}
-\hline
-mean\_CRP & sd\_CRP\\
-\hline
-3.010294 & 4.000611\\
-\hline
-\end{tabular}
-
-\end{knitrout}
+@
 
 
 \section*{Appendix}
