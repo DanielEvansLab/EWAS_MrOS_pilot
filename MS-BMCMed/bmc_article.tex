@@ -142,7 +142,7 @@
 %%                                          %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\title{A sample article title}
+\title{DNA methylation associations with markers of inflammation in elderly men}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%                                          %%
@@ -159,15 +159,19 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \author[
-  addressref={aff1},                   % id's of addresses, e.g. {aff1,aff2}
-  corref={aff1},                       % id of corresponding address, if any
+  addressref={cpmcri},                   % id's of addresses, e.g. {aff1,aff2}
+%  corref={cpmcri},                       % id of corresponding address, if any
 % noteref={n1},                        % id's of article notes, if any
-  email={jane.e.doe@cambridge.co.uk}   % email address
-]{\inits{J.E.}\fnm{Jane E.} \snm{Doe}}
+  email={Daniel.Evans@ucsf.edu}   % email address
+]{\inits{D.E.}\fnm{Daniel S.} \snm{Evans}}
 \author[
-  addressref={aff1,aff2},
-  email={john.RS.Smith@cambridge.co.uk}
-]{\inits{J.R.S.}\fnm{John R.S.} \snm{Smith}}
+  addressref={cpmcri},
+  email={theresa.mau@ucsf.edu}
+]{\inits{T.M.}\fnm{Theresa} \snm{Mau}}
+\author[
+  addressref={ucd},
+  email={nelane@ucdavis.edu}
+]{\inits{N.E.L.}\fnm{Nancy E.} \snm{Lane}}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%                                          %%
@@ -178,19 +182,19 @@
 %%                                          %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\address[id=aff1]{%                           % unique id
-  \orgdiv{Department of Science},             % department, if any
-  \orgname{University of Cambridge},          % university, etc
-  \city{London},                              % city
-  \cny{UK}                                    % country
+\address[id=cpmcri]{%                           % unique id
+  \orgdiv{Research Institute},             % department, if any
+  \orgname{California Pacific Medical Center},          % university, etc
+  \city{San Francisco},                              % city
+  \cny{CA}                                    % country
 }
-\address[id=aff2]{%
-  \orgdiv{Institute of Biology},
-  \orgname{National University of Sciences},
+\address[id=ucd]{%
+  \orgdiv{Department of Medicine},
+  \orgname{University of California at Davis},
   %\street{},
   %\postcode{}
-  \city{Kiel},
-  \cny{Germany}
+  \city{Davis},
+  \cny{CA}
 }
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -223,11 +227,15 @@
 \begin{abstractbox}
 
 \begin{abstract} % abstract
-\parttitle{First part title} %if any
-Text for this section.
+\parttitle{Background} 
+Epigenetic alterations are one of the hallmarks of aging, as age-related changes have been observed with various epigenetic markers, such as DNA methylation and post-translational modification of histones. Epigenome-wide association studies (EWAS) take an unbiased approach and test each DNA methylation marker for trait association. EWAS have found that specific DNA methylation sites in blood are associated with markers of inflammation, namely, C-reactive protein (CRP). CRP is also associated with multiple age-related conditions and diseases; thus, identifying molecular associations with CRP could help elucidate mechanisms important for aging. In this study, we report an EWAS of multiple markers of inflammation in elderly men and we examine whether biological aging defined by DNA methylation is associated with inflammation markers. 
 
-\parttitle{Second part title} %if any
-Text for this section.
+\parttitle{Methods} 
+DNA methylation was assayed using the Illumina Infinium MethylationEpic array using DNA isolated from whole blood. 
+
+\parttitle{Results}
+Text
+\parttitle{Conclusions}
 \end{abstract}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -239,9 +247,8 @@ Text for this section.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \begin{keyword}
-\kwd{sample}
-\kwd{article}
-\kwd{author}
+\kwd{EWAS}
+\kwd{CRP}
 \end{keyword}
 
 % MSC classifications codes, if any
